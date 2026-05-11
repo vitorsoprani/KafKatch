@@ -5,10 +5,10 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>br.ufes.edu</groupId>
-  <artifactId>kafkatch-linksummary</artifactId>
+  <artifactId>kafkatch-core</artifactId>
   <version>1.0-SNAPSHOT</version>
 
-  <name>kafkatch-linksummary</name>
+  <name>kafkatch-core</name>
   <!-- FIXME change it to the project's website -->
   <url>http://www.example.com</url>
 
