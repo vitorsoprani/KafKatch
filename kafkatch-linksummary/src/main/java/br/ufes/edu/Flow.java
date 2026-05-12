@@ -1,8 +1,9 @@
 package br.ufes.edu;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 
-public class Flow {
+public class Flow implements Serializable {
     // Intervalo englobado no relatorio
     private LocalDateTime timestamp_start,
                           timestamp_end;
@@ -105,6 +106,9 @@ public class Flow {
         this.max_packet_size = max_packet_size;
     }
 
+
+    // Para uso pelo desserializador
+    public Flow() {}
 
     public Flow(LocalDateTime _timestamp_start, LocalDateTime _timestamp_end,
                 String _flow_key, String _src_ip, String _dst_ip,
