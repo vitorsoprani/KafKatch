@@ -1,14 +1,11 @@
-#include <net/ethernet.h>
-#include <netinet/ether.h>	/* Protocolos padrão */
-#include <netinet/in.h>		/* Protocolos padrão */
-#include <netinet/ip.h>		/* Structs do IPv4 */
-#include <netinet/tcp.h>	/* Structs do TCP */
-#include <netinet/udp.h>	/* Structs do UDP */
-#include <arpa/inet.h>		/* Funções de conversão de IP (inet_ntoa) */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <pcap/pcap.h>
+#include <unistd.h>
+#include <pthread.h>
+
+#include "parser.h"
+#include "flow.h"
 
 #define LOG(fmt, ...) \
 	fprintf(stderr, "[%s:%d] " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__)
@@ -16,17 +13,92 @@
 #define CAPLEN		128 /* Estamos interessados apenas nos (cabeçalhos). */
 #define CAPBUFFER_SIZE	32000000 /* 32MB, evita que o kernel "drope" pacotes */
 
-
 char errbuf[PCAP_ERRBUF_SIZE]; /* Mensagens de erro são escritas aqui */
 
-void list_devs(void);
+void *flush_worker(void *arg) {
+	sniffer_context_t *ctx = (sniffer_context_t *)arg;
 
-void pkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes);
+	while (ctx->is_running) {
+		sleep(1); /* Janela de 1 segundo (tempo de host) */
+
+		flow_t *table_to_export = NULL;
+
+		/* SEÇÃO CRÍTICA: Apenas trocamos os ponteiros.
+		 * O lock dura nanossegundos, não afeta a captura. */
+		pthread_mutex_lock(&ctx->mutex);
+
+		table_to_export = ctx->tables[ctx->active_idx]; // Pega a tabela cheia
+		ctx->active_idx = !ctx->active_idx;			 // Inverte o índice (0->1 ou 1->0)
+		ctx->tables[ctx->active_idx] = NULL;			// Prepara a próxima tabela limpa
+
+		pthread_mutex_unlock(&ctx->mutex);
+
+		/* PROCESSAMENTO OFFLINE: Agora podemos imprimir/enviar sem travar o pcap */
+		if (table_to_export != NULL) {
+			printf("\n[FLUSH THREAD] Processando janela de tempo terminada...\n");
+			debug_print_flow_table(table_to_export);
+
+			/* TODO: Enviar para Kafka aqui */
+
+			/* LIMPEZA: Fundamental para o próximo ciclo */
+			flow_table_clear(&table_to_export);
+		}
+	}
+	return NULL;
+}
+
+void list_devs(void)
+{
+	pcap_if_t *devs = NULL;
+
+	if (pcap_findalldevs(&devs, errbuf) == PCAP_ERROR) {
+		LOG("Erro ao listar devices: %s\n", errbuf);
+		return;
+	}
+
+	printf("Interfaces dispiniveis:\n");
+	if (devs == NULL) {
+		printf("Nenhuma interface disponível");
+	}
+
+	pcap_if_t *curr_dev = devs;
+	while (curr_dev != NULL) {
+		printf("%s\n", curr_dev->name);
+		curr_dev = curr_dev->next;
+	}
+
+	pcap_freealldevs(devs);
+}
 
 int main(int argc, char **argv)
 {
 	if (argc < 2) {
 		LOG("Erro: Indique a interface a ser monitorada!");
+		return EXIT_FAILURE;
+	}
+	char errbuf[PCAP_ERRBUF_SIZE];
+	uint32_t net_ip, net_mask;
+
+	/* Extrai a rede e a máscara da interface Wi-Fi (ex: wlxe894...) */
+	if (pcap_lookupnet(argv[1], &net_ip, &net_mask, errbuf) == -1) {
+		LOG("Aviso: Não foi possível obter IP/Mascara para %s: %s", argv[1], errbuf);
+		net_ip = 0;
+		net_mask = 0;
+	}
+
+	/* Instancia o contexto com a tabela vazia e os dados da rede */
+	sniffer_context_t ctx = {
+		.tables = {NULL, NULL},
+		.active_idx = 0,
+		.net_ip = net_ip,
+		.net_mask = net_mask,
+		.is_running = 1
+	};
+	pthread_mutex_init(&ctx.mutex, NULL);
+
+	pthread_t thread_id;
+	if (pthread_create(&thread_id, NULL, flush_worker, &ctx) != 0) {
+		LOG("Erro ao criar thread de flush");
 		return EXIT_FAILURE;
 	}
 
@@ -38,7 +110,6 @@ int main(int argc, char **argv)
 	/* ===== CONFIGURANDO O HANDLER PARA A CAPTURA ===== */
 	int err_code = 0;
 	pcap_t *pcap = pcap_create(argv[1], errbuf);
-
 
 	if (pcap == NULL) {
 		LOG("Erro ao criar o handler de captura: %s\n", errbuf);
@@ -85,138 +156,19 @@ int main(int argc, char **argv)
 
 	/* ===== INICIANDO CAPTURA ===== */
 	if (pcap_datalink(pcap) != DLT_EN10MB) {
-		LOG("Fatal: linklayer header fornecido pela interface não é suportado");
+		LOG("Fatal: linklayer header fornecido não é suportado (Ethernet requerido)");
 		pcap_close(pcap);
 		return EXIT_FAILURE;
 	}
+
 	printf("Captura iniciada: monitorando a interface %s\n", argv[1]);
 
-	pcap_loop(pcap, -1, pkt_handler, NULL);
+	pcap_loop(pcap, 1000, pkt_handler, (u_char *)&ctx);
 
-
+	ctx.is_running = 0;
+	pthread_join(thread_id, NULL);
+	pthread_mutex_destroy(&ctx.mutex);
 	pcap_close(pcap);
 	return EXIT_SUCCESS;
 }
 
-void list_devs(void)
-{
-	pcap_if_t *devs = NULL;
-
-	if (pcap_findalldevs(&devs, errbuf) == PCAP_ERROR) {
-		LOG("Erro ao listar devices: %s\n", errbuf);
-		return;
-	}
-
-	printf("Interfaces dispiniveis para o programa com suas permissoes:\n");
-
-	if (devs == NULL) {
-		printf("Nenhuma interface disponível");
-	}
-
-	pcap_if_t *curr_dev = devs;
-	while (curr_dev != NULL) {
-		printf("%s\n", curr_dev->name);
-		curr_dev = curr_dev->next;
-	}
-
-	pcap_freealldevs(devs);
-}
-
-/*
- * typedef void (*pcap_handler)(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes);
- * u_char *user: ponteiro passado no argumento "user" em int pcap_loop(pcap_t *p, int cnt, pcap_handler callback, u_char *user);
- * struct pcap_pkthdr *h: header do pacote com timestamp e tamanhos;
- * u_char *bytes: pacote cru (truncado em CAPLEN bytes), começa com um cabeçalho no padrão retornado por pcap_datalink
- */
-void pkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
-{
-	struct ether_header *ether_hdr = (struct ether_header *) bytes;
-	uint16_t ether_type = ntohs(ether_hdr->ether_type); /* convert endianness */
-	int offset = sizeof(struct ether_header);
-
-/*
-	printf("================\n");
-	printf("pacote detectado\n"
-	       "\tts: %ld\n"
-	       "\tlen: %d\n",
-	       h->ts.tv_sec, h->len);
-
-	printf("src_mac: %s\n",
-		ether_ntoa((struct ether_addr *)ether_hdr->ether_shost));
-	printf("dst_mac: %s\n",
-		ether_ntoa((struct ether_addr *)ether_hdr->ether_dhost));
-*/
-
-	/* Verifica se há tag vlan (4 bytes extras no header) */
-	if (ether_type == ETHERTYPE_VLAN) {
-		offset += 4;
-
-		/* Agora lê o veradeiro tipo (ultimos 2 bytes do header) */
-		ether_type = ntohs(*((uint16_t *)(bytes + offset - 2)));
-	}
-
-	if (ether_type != ETHERTYPE_IP) {
-		/*
-		 * Ignora pacotes que não são ip.
-		 * TODO: implementar suporte a outros protocolos:
-		 *	arp, ipv6, etc... [?]
-		 */
-		return;
-	}
-
-	struct ip *ip_hdr = (struct ip *)(bytes + offset);
-
-	if (ip_hdr->ip_v != 4)
-		return;
-
-	/* o tamanho é dinamico. multiplicado por 4 para ter em bytes */
-	int ip_hdrlen = ip_hdr->ip_hl * 4;
-
-	uint32_t src_ip = ntohs(ip_hdr->ip_src.s_addr);
-	uint32_t dst_ip = ntohs(ip_hdr->ip_dst.s_addr);
-	uint8_t protocol = ip_hdr->ip_p;
-
-	uint16_t src_port = 0;
-	uint16_t dst_port = 0;
-	uint8_t tcp_flags = 0;
-
-	if (protocol == IPPROTO_TCP) {
-		if (h->caplen < offset + ip_hdrlen + sizeof(struct tcphdr))
-			return;
-		struct tcphdr *tcp_hdr = (struct tcphdr *)(bytes + offset + ip_hdrlen);
-
-		src_port = ntohs(tcp_hdr->th_sport);
-		dst_port = ntohs(tcp_hdr->th_dport);
-		tcp_flags = tcp_hdr->th_flags;
-
-	} else if (protocol == IPPROTO_UDP) {
-		if (h->caplen < offset + ip_hdrlen + sizeof(struct udphdr))
-			return;
-
-		struct udphdr *udp_hdr = (struct udphdr *)(bytes + offset + ip_hdrlen);
-
-		src_port = ntohs(udp_hdr->uh_sport);
-		dst_port = ntohs(udp_hdr->uh_dport);
-	} else {
-		/* Ignora ICMP, IGMP, etc. se o foco for apenas fluxos L4 */
-		return;
-	}
-
-	char src_ip_str[INET_ADDRSTRLEN];
-	char dst_ip_str[INET_ADDRSTRLEN];
-	inet_ntop(AF_INET, &(ip_hdr->ip_src), src_ip_str, INET_ADDRSTRLEN);
-	inet_ntop(AF_INET, &(ip_hdr->ip_dst), dst_ip_str, INET_ADDRSTRLEN);
-
-	printf("================\n");
-	printf("Fluxo Detectado: %s:%d -> %s:%d (Proto: %d)\n",
-		src_ip_str, src_port, dst_ip_str, dst_port, protocol);
-	printf("Bytes reais na rede: %d\n", h->len);
-
-	if (protocol == IPPROTO_TCP) {
-		printf("Flags TCP: [SYN:%d ACK:%d FIN:%d RST:%d]\n",
-			(tcp_flags & TH_SYN) ? 1 : 0,
-			(tcp_flags & TH_ACK) ? 1 : 0,
-			(tcp_flags & TH_FIN) ? 1 : 0,
-			(tcp_flags & TH_RST) ? 1 : 0);
-	}
-}

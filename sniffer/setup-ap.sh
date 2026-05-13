@@ -10,7 +10,10 @@ echo "Setting up network..."
 MAIN_IF=$(ip route get 8.8.8.8 | awk -- '{printf $5}')
 echo "Main network interface with internet detected: $MAIN_IF"
 
+# ativa o roteamento ipv4
 sudo sysctl -w net.ipv4.ip_forward=1
+# bloqueia o trafego ipv6
+sudo sysctl -w net.ipv6.conf.$INTERFACE.disable_ipv6=1
 
 sudo nmcli con delete "$CON_NAME" 2>/dev/null
 sudo nmcli con add type wifi ifname "$INTERFACE" con-name "$CON_NAME" autoconnect no ssid "$AP_SSID"
@@ -23,7 +26,8 @@ sudo nmcli con modify "$CON_NAME" \
     802-11-wireless-security.pairwise ccmp \
     802-11-wireless-security.group ccmp \
     802-11-wireless-security.psk "$AP_PSK" \
-    ipv4.method shared
+    ipv4.method shared \
+    ipv6.method disabled
 sudo nmcli con up "$CON_NAME"
 
 # Limpa regras antigas de encaminhamento para evitar conflitos no testbed
