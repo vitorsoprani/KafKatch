@@ -3,6 +3,7 @@
 
 #include <pcap/pcap.h>
 #include <pthread.h>
+#include <librdkafka/rdkafka.h>
 #include "flow.h"
 
 /* O contexto que será injetado no loop de captura */
@@ -13,6 +14,7 @@ struct sniffer_context {
     uint32_t net_ip;		/* Endereço da rede local (Network Byte Order) */
     uint32_t net_mask;		/* Máscara de sub-rede (Network Byte Order) */
     int is_running;		/* controla a execução da thread de flush */
+    rd_kafka_t *kafka_producer;	/* envia os dados para o cluster */
 };
 
 /* Callback para o pcap_loop */

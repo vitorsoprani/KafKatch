@@ -3,9 +3,13 @@
 #include <pcap/pcap.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <arpa/inet.h>
+#include <signal.h> /* Para o signal() e SIGINT */
+#include <time.h> /* Necessário para clock_gettime e clock_nanosleep */
 
 #include "parser.h"
 #include "flow.h"
+#include "kafka_client.h"
 
 #define LOG(fmt, ...) \
 	fprintf(stderr, "[%s:%d] " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__)
@@ -13,13 +17,25 @@
 #define CAPLEN		128 /* Estamos interessados apenas nos (cabeçalhos). */
 #define CAPBUFFER_SIZE	32000000 /* 32MB, evita que o kernel "drope" pacotes */
 
-char errbuf[PCAP_ERRBUF_SIZE]; /* Mensagens de erro são escritas aqui */
+pcap_t *global_pcap_handle = NULL;
+
+void handle_sigint(int sig) {
+	LOG("[!] Sinal %d (Ctrl+C) recebido. Encerrando captura pacificamente...", sig);
+	if (global_pcap_handle != NULL) {
+	    pcap_breakloop(global_pcap_handle);
+	}
+}
 
 void *flush_worker(void *arg) {
 	sniffer_context_t *ctx = (sniffer_context_t *)arg;
+	const char *topic_name = "network-microflows-raw"; /* Nome do tópico no Kafka */
+	static uint32_t count_flushes = 0;
+	struct timespec next_flush;
 
+	clock_gettime(CLOCK_MONOTONIC, &next_flush);
 	while (ctx->is_running) {
-		sleep(1); /* Janela de 1 segundo (tempo de host) */
+		/* Define a meta do próximo flush para exatos 1 segundo no futuro */
+		next_flush.tv_sec += 1;
 
 		flow_t *table_to_export = NULL;
 
@@ -28,27 +44,27 @@ void *flush_worker(void *arg) {
 		pthread_mutex_lock(&ctx->mutex);
 
 		table_to_export = ctx->tables[ctx->active_idx]; // Pega a tabela cheia
-		ctx->active_idx = !ctx->active_idx;			 // Inverte o índice (0->1 ou 1->0)
-		ctx->tables[ctx->active_idx] = NULL;			// Prepara a próxima tabela limpa
+		ctx->active_idx = !ctx->active_idx;		// Inverte o índice (0->1 ou 1->0)
+		ctx->tables[ctx->active_idx] = NULL;		// Prepara a próxima tabela limpa
 
 		pthread_mutex_unlock(&ctx->mutex);
 
 		/* PROCESSAMENTO OFFLINE: Agora podemos imprimir/enviar sem travar o pcap */
 		if (table_to_export != NULL) {
-			printf("\n[FLUSH THREAD] Processando janela de tempo terminada...\n");
-			debug_print_flow_table(table_to_export);
+			printf("\n[FLUSH THREAD] flush n %d\n", ++count_flushes);
+			//debug_print_flow_table(table_to_export);
 
-			/* TODO: Enviar para Kafka aqui */
-
-			/* LIMPEZA: Fundamental para o próximo ciclo */
-			flow_table_clear(&table_to_export);
+			kafka_client_send_flows(ctx->kafka_producer, topic_name, &table_to_export);
 		}
+
+		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next_flush, NULL);
 	}
 	return NULL;
 }
 
 void list_devs(void)
 {
+	char errbuf[PCAP_ERRBUF_SIZE];
 	pcap_if_t *devs = NULL;
 
 	if (pcap_findalldevs(&devs, errbuf) == PCAP_ERROR) {
@@ -86,13 +102,20 @@ int main(int argc, char **argv)
 		net_mask = 0;
 	}
 
+	/* ===== INICIALIZAÇÃO DO KAFKA ===== */
+	rd_kafka_t *rk = kafka_client_init("localhost:9092,localhost:9094,localhost:9096");
+	if (!rk) {
+		return EXIT_FAILURE;
+	}
+
 	/* Instancia o contexto com a tabela vazia e os dados da rede */
 	sniffer_context_t ctx = {
 		.tables = {NULL, NULL},
 		.active_idx = 0,
 		.net_ip = net_ip,
 		.net_mask = net_mask,
-		.is_running = 1
+		.is_running = 1,
+		.kafka_producer = rk
 	};
 	pthread_mutex_init(&ctx.mutex, NULL);
 
@@ -110,11 +133,13 @@ int main(int argc, char **argv)
 	/* ===== CONFIGURANDO O HANDLER PARA A CAPTURA ===== */
 	int err_code = 0;
 	pcap_t *pcap = pcap_create(argv[1], errbuf);
-
 	if (pcap == NULL) {
 		LOG("Erro ao criar o handler de captura: %s\n", errbuf);
 		return EXIT_FAILURE;
 	}
+
+	global_pcap_handle = pcap;
+	signal(SIGINT, handle_sigint);
 
 	err_code = pcap_set_snaplen(pcap, CAPLEN);
 	if (err_code != 0) {
@@ -163,12 +188,19 @@ int main(int argc, char **argv)
 
 	printf("Captura iniciada: monitorando a interface %s\n", argv[1]);
 
-	pcap_loop(pcap, 1000, pkt_handler, (u_char *)&ctx);
+	pcap_loop(pcap, -1, pkt_handler, (u_char *)&ctx);
+
+	LOG("Captura finalizada. Iniciando encerramento gracioso...");
 
 	ctx.is_running = 0;
 	pthread_join(thread_id, NULL);
 	pthread_mutex_destroy(&ctx.mutex);
 	pcap_close(pcap);
+
+	kafka_client_cleanup(rk);
+	rd_kafka_wait_destroyed(5000);
+	LOG("Programa encerrado com sucesso.");
+
 	return EXIT_SUCCESS;
 }
 

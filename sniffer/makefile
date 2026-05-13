@@ -7,7 +7,7 @@ CC=gcc
 CC_FLAGS=-c -std=gnu99 -Wall -Wextra -pedantic
 
 # adicionar as bibliotecas necessárias (-lpcap -lrdkafka -lpthread)
-LD_FLAGS=-lpcap
+LD_FLAGS=-lpcap -lrdkafka
 
 all: sniffer
 

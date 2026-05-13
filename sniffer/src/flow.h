@@ -50,6 +50,8 @@ void flow_update_stats(flow_t *flow, const pkt_stats_t *stats);
 /* implementa a lógica de inserção/busca na tabela hash */
 void flow_process_packet(sniffer_context_t *ctx, const pkt_stats_t *stats);
 
+const char* get_dir_string(flow_direction_t dir);
+
 void flow_table_clear(flow_t **table_ptr);
 
 void debug_print_flow_table(flow_t *table);
