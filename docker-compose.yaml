@@ -1,0 +1,75 @@
+# Docker compose que está no gihub do kafka adaptado para ficar parecido com as
+# convenções do laboratório (lab1)
+
+
+services:
+  kafka-1:
+    image: apache/kafka:latest
+    hostname: kafka-1
+    container_name: kafka-1
+    ports:
+      - "9092:9092" # Broker 1 (Par)
+      - "9093:9093" # Controller 1 (Ímpar)
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka-1:9093,2@kafka-2:9095,3@kafka-3:9097'
+      KAFKA_LISTENERS: 'PLAINTEXT://:19092,CONTROLLER://:9093,EXTERNAL://:9092'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka-1:19092,EXTERNAL://localhost:9092'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      CLUSTER_ID: '4L6g3nShT-eMCtK--X86sw'
+
+  kafka-2:
+    image: apache/kafka:latest
+    hostname: kafka-2
+    container_name: kafka-2
+    ports:
+      - "9094:9092" # Broker 2 (Par) no Host mapeado para 9092 interno
+      - "9095:9095" # Controller 2 (Ímpar) mapeado para 9093 interno
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka-1:9093,2@kafka-2:9095,3@kafka-3:9097'
+      KAFKA_LISTENERS: 'PLAINTEXT://:19092,CONTROLLER://:9095,EXTERNAL://:9092'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka-2:19092,EXTERNAL://localhost:9094'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      CLUSTER_ID: '4L6g3nShT-eMCtK--X86sw'
+
+  kafka-3:
+    image: apache/kafka:latest
+    hostname: kafka-3
+    container_name: kafka-3
+    ports:
+      - "9096:9092" # Broker 3 (Par)
+      - "9097:9097" # Controller 3 (Ímpar)
+    environment:
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka-1:9093,2@kafka-2:9095,3@kafka-3:9097'
+      KAFKA_LISTENERS: 'PLAINTEXT://:19092,CONTROLLER://:9097,EXTERNAL://:9092'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka-3:19092,EXTERNAL://localhost:9096'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      CLUSTER_ID: '4L6g3nShT-eMCtK--X86sw'
+  
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8080:8080" # Porta para acessar no seu navegador
+    environment:
+      # Nome que aparecerá na interface
+      - KAFKA_CLUSTERS_0_NAME=KafKatch
+      
+      # Lista de brokers (usando os nomes dos serviços e portas internas)
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka-1:19092,kafka-2:19092,kafka-3:19092
+      
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
