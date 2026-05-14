@@ -25,6 +25,9 @@ public class FlowParser {
         short min_size = (short)object.getInt("min_size"),
               max_size = (short)object.getInt("max_size");
         
+        // Timestamp do Kafka é tempo Unix, na escala de ms
+        // Necessário dividir por 1000 para os segundos inteiros
+        // e multiplicar por 1000000 para converter em ns
         int nanoOfSecond = (int)(kafka_timestamp%1000) * 1000000;
         LocalDateTime timestamp = LocalDateTime.ofEpochSecond(kafka_timestamp/1000, nanoOfSecond, null);
         double mean_iat_us = object.getJsonNumber("mean_iat_us").doubleValue();
