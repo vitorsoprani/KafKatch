@@ -10,6 +10,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.common.serialization.StringDeserializer;
 
+// CLASSE DEPRECIADA — UTILIZE FlowParserTest.java
 public class FlowDeserializerTest {
     public static void main(String[] args) {
         Properties props = new Properties();
@@ -38,15 +39,14 @@ public class FlowDeserializerTest {
                                        " | partition=" + record.partition() +
                                        " | offset=" + record.offset());
                     
-                    System.out.println("Timestamp_start: " + flow.getTimestamp_start());
-                    System.out.println("Timestamp_end: " + flow.getTimestamp_end());
-
                     System.out.println("Flow_key: " + flow.getFlow_key());
                     System.out.println("Src_ip: " + flow.getSrc_ip());
                     System.out.println("Dst_ip: " + flow.getDst_ip());
                     System.out.println("Src_port: " + flow.getSrc_port());
                     System.out.println("Dst_port: " + flow.getDst_port());
                     System.out.println("Protocol: " + flow.getProtocol());
+
+                    System.out.println("Timestamp: " + flow.getTimestamp());
 
                     System.out.println("Packet_count: " + flow.getPacket_count());
                     System.out.println("Byte_count: " + flow.getByte_count());

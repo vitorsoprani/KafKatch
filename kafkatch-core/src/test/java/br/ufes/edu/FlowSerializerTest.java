@@ -8,6 +8,7 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
 
+// CLASSE DEPRECIADA — UTILIZE FlowParserTest.java
 public class FlowSerializerTest {
     public static void main(String[] args) {
         Properties props = new Properties();
@@ -21,9 +22,11 @@ public class FlowSerializerTest {
         String topic = "topic1";
 
         try {
-            Flow flow = new Flow(LocalDateTime.MIN, LocalDateTime.MAX,
-                                 "key", "src_ip", "dst_ip", "src_port",
-                                 "dst_port", "protocol", 2, 20, 8, 12);
+            Flow flow = new Flow("key", "src_ip", "dst_ip", (short)0, (short)0,
+                                 FlowProtocol.TCP, FlowDirection.INBOUND,
+                                 2, 20, (short)8, (short)12,
+                                 LocalDateTime.now(), 2000.0,
+                                 1, 1, 0, 0);
 
             ProducerRecord<String, Flow> record = new ProducerRecord<String,Flow>(topic, flow);
 
