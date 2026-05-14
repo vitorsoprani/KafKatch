@@ -19,21 +19,20 @@ public class FlowParser {
 
         String src_ip = root.get("src_ip").asText();
         String dst_ip = root.get("dst_ip").asText();
-        short src_port = (short) root.get("src_port").asInt();
-        short dst_port = (short) root.get("dst_port").asInt();
+        int src_port = root.get("src_port").asInt();
+        int dst_port = root.get("dst_port").asInt();
         
         FlowProtocol protocol = FlowProtocol.valueOf(root.get("protocol").asText());
         FlowDirection dir = FlowDirection.valueOf(root.get("dir").asText());
 
         int packets = root.get("packets").asInt();
         int bytes = root.get("bytes").asInt();
-        short min_size = (short) root.get("min_size").asInt();
-        short max_size = (short) root.get("max_size").asInt();
+        int min_size = root.get("min_size").asInt();
+        int max_size = root.get("max_size").asInt();
         
-        int nanoOfSecond = (int)(kafka_timestamp % 1000) * 1000000;
         LocalDateTime timestamp = LocalDateTime.ofInstant(
-            Instant.ofEpochMilli(nanoOfSecond),
-            ZoneOffset.UTC
+            Instant.ofEpochMilli(kafka_timestamp),
+            ZoneOffset.systemDefault()
         );
         
         double mean_iat_us = root.get("mean_iat_us").asDouble();
