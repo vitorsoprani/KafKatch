@@ -1,11 +1,21 @@
+/*
+ * main.c - Ponto de entrada do sniffer de microflows
+ *
+ * Autor: Vitor Soprani
+ *
+ * Responsável por inicializar a interface de captura (libpcap), instanciar
+ * o contexto de double buffering e coordenar as threads de processamento
+ * de rede e de exportação para o cluster Kafka.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <pcap/pcap.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <arpa/inet.h>
-#include <signal.h> /* Para o signal() e SIGINT */
-#include <time.h> /* Necessário para clock_gettime e clock_nanosleep */
+#include <signal.h>
+#include <time.h>
 
 #include "parser.h"
 #include "flow.h"
@@ -14,193 +24,207 @@
 #define LOG(fmt, ...) \
 	fprintf(stderr, "[%s:%d] " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__)
 
-#define CAPLEN		128 /* Estamos interessados apenas nos (cabeçalhos). */
-#define CAPBUFFER_SIZE	32000000 /* 32MB, evita que o kernel "drope" pacotes */
+#define CAPLEN			128
+#define CAPBUFFER_SIZE		32000000 /* 32MB */
 
-pcap_t *global_pcap_handle = NULL;
+static pcap_t *global_pcap_handle = NULL;
 
-void handle_sigint(int sig) {
+void handle_sigint(int sig)
+{
 	LOG("[!] Sinal %d (Ctrl+C) recebido. Encerrando captura pacificamente...", sig);
-	if (global_pcap_handle != NULL) {
-	    pcap_breakloop(global_pcap_handle);
-	}
+	if (global_pcap_handle != NULL)
+		pcap_breakloop(global_pcap_handle);
 }
 
-void *flush_worker(void *arg) {
+void *flush_worker(void *arg)
+{
 	sniffer_context_t *ctx = (sniffer_context_t *)arg;
-	const char *topic_name = "network-microflows-raw"; /* Nome do tópico no Kafka */
+	const char *topic_name = "network-microflows-raw";
 	static uint32_t count_flushes = 0;
 	struct timespec next_flush;
+	flow_t *table_to_export;
 
 	clock_gettime(CLOCK_MONOTONIC, &next_flush);
+
 	while (ctx->is_running) {
-		/* Define a meta do próximo flush para exatos 1 segundo no futuro */
 		next_flush.tv_sec += 1;
+		table_to_export = NULL;
 
-		flow_t *table_to_export = NULL;
-
-		/* SEÇÃO CRÍTICA: Apenas trocamos os ponteiros.
-		 * O lock dura nanossegundos, não afeta a captura. */
 		pthread_mutex_lock(&ctx->mutex);
-
-		table_to_export = ctx->tables[ctx->active_idx]; // Pega a tabela cheia
-		ctx->active_idx = !ctx->active_idx;		// Inverte o índice (0->1 ou 1->0)
-		ctx->tables[ctx->active_idx] = NULL;		// Prepara a próxima tabela limpa
-
+		table_to_export = ctx->tables[ctx->active_idx];
+		ctx->active_idx = !ctx->active_idx;
+		ctx->tables[ctx->active_idx] = NULL;
 		pthread_mutex_unlock(&ctx->mutex);
 
-		/* PROCESSAMENTO OFFLINE: Agora podemos imprimir/enviar sem travar o pcap */
+		printf("\n[FLUSH THREAD] Tick %d ", ++count_flushes);
 		if (table_to_export != NULL) {
-			printf("\n[FLUSH THREAD] flush n %d\n", ++count_flushes);
-			//debug_print_flow_table(table_to_export);
-
+			printf("- Exportando fluxos capturados!\n");
 			kafka_client_send_flows(ctx->kafka_producer, topic_name, &table_to_export);
+		} else {
+			printf("- Silêncio na rede (Tabela vazia).\n");
 		}
 
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next_flush, NULL);
 	}
+
 	return NULL;
 }
 
-void list_devs(void)
+static void list_devs(void)
 {
 	char errbuf[PCAP_ERRBUF_SIZE];
 	pcap_if_t *devs = NULL;
+	pcap_if_t *curr_dev;
 
 	if (pcap_findalldevs(&devs, errbuf) == PCAP_ERROR) {
 		LOG("Erro ao listar devices: %s\n", errbuf);
 		return;
 	}
 
-	printf("Interfaces dispiniveis:\n");
-	if (devs == NULL) {
-		printf("Nenhuma interface disponível");
-	}
+	printf("Interfaces disponiveis:\n");
+	if (!devs)
+		printf("Nenhuma interface disponível\n");
 
-	pcap_if_t *curr_dev = devs;
-	while (curr_dev != NULL) {
+	for (curr_dev = devs; curr_dev != NULL; curr_dev = curr_dev->next)
 		printf("%s\n", curr_dev->name);
-		curr_dev = curr_dev->next;
-	}
 
 	pcap_freealldevs(devs);
 }
 
+static pcap_t *setup_pcap(const char *iface)
+{
+	char errbuf[PCAP_ERRBUF_SIZE];
+	pcap_t *pcap;
+	int err;
+
+	pcap = pcap_create(iface, errbuf);
+	if (!pcap) {
+		LOG("Erro ao criar o handler de captura: %s", errbuf);
+		return NULL;
+	}
+
+	err = pcap_set_snaplen(pcap, CAPLEN);
+	if (err)
+		goto err_close;
+
+	err = pcap_set_promisc(pcap, 1);
+	if (err)
+		goto err_close;
+
+	err = pcap_set_immediate_mode(pcap, 0);
+	if (err)
+		goto err_close;
+
+	err = pcap_set_timeout(pcap, 10);
+	if (err)
+		goto err_close;
+
+	err = pcap_set_buffer_size(pcap, CAPBUFFER_SIZE);
+	if (err)
+		goto err_close;
+
+	err = pcap_activate(pcap);
+	if (err < 0) {
+		LOG("Erro ao ativar a captura: %s", pcap_geterr(pcap));
+		goto err_close;
+	} else if (err > 0) {
+		LOG("Aviso ao ativar a captura: %s", pcap_geterr(pcap));
+	}
+
+	if (pcap_datalink(pcap) != DLT_EN10MB) {
+		LOG("Fatal: linklayer header fornecido não é suportado");
+		goto err_close;
+	}
+
+	return pcap;
+
+err_close:
+	pcap_close(pcap);
+	return NULL;
+}
+
 int main(int argc, char **argv)
 {
+	char errbuf[PCAP_ERRBUF_SIZE];
+	uint32_t net_ip = 0;
+	uint32_t net_mask = 0;
+	rd_kafka_t *rk;
+	sniffer_context_t ctx;
+	pthread_t thread_id;
+	struct pcap_stat stats;
+
 	if (argc < 2) {
 		LOG("Erro: Indique a interface a ser monitorada!");
+		list_devs();
 		return EXIT_FAILURE;
 	}
-	char errbuf[PCAP_ERRBUF_SIZE];
-	uint32_t net_ip, net_mask;
 
-	/* Extrai a rede e a máscara da interface Wi-Fi (ex: wlxe894...) */
 	if (pcap_lookupnet(argv[1], &net_ip, &net_mask, errbuf) == -1) {
-		LOG("Aviso: Não foi possível obter IP/Mascara para %s: %s", argv[1], errbuf);
+		LOG("Aviso: Não foi possível obter IP/Mascara: %s", errbuf);
 		net_ip = 0;
 		net_mask = 0;
 	}
 
-	/* ===== INICIALIZAÇÃO DO KAFKA ===== */
-	rd_kafka_t *rk = kafka_client_init("localhost:9092,localhost:9094,localhost:9096");
-	if (!rk) {
+	rk = kafka_client_init("localhost:9092,localhost:9094,localhost:9096");
+	if (!rk)
 		return EXIT_FAILURE;
-	}
 
-	/* Instancia o contexto com a tabela vazia e os dados da rede */
-	sniffer_context_t ctx = {
-		.tables = {NULL, NULL},
-		.active_idx = 0,
-		.net_ip = net_ip,
-		.net_mask = net_mask,
-		.is_running = 1,
-		.kafka_producer = rk
-	};
+	ctx.tables[0] = NULL;
+	ctx.tables[1] = NULL;
+	ctx.active_idx = 0;
+	ctx.net_ip = net_ip;
+	ctx.net_mask = net_mask;
+	ctx.is_running = 1;
+	ctx.kafka_producer = rk;
+
 	pthread_mutex_init(&ctx.mutex, NULL);
 
-	pthread_t thread_id;
 	if (pthread_create(&thread_id, NULL, flush_worker, &ctx) != 0) {
 		LOG("Erro ao criar thread de flush");
-		return EXIT_FAILURE;
+		goto err_kafka;
 	}
 
 	if (pcap_init(PCAP_CHAR_ENC_LOCAL, errbuf) == PCAP_ERROR) {
-		LOG("Erro ao iniciar libpcap: %s\n", errbuf);
-		return EXIT_FAILURE;
+		LOG("Erro ao iniciar libpcap: %s", errbuf);
+		goto err_thread;
 	}
 
-	/* ===== CONFIGURANDO O HANDLER PARA A CAPTURA ===== */
-	int err_code = 0;
-	pcap_t *pcap = pcap_create(argv[1], errbuf);
-	if (pcap == NULL) {
-		LOG("Erro ao criar o handler de captura: %s\n", errbuf);
-		return EXIT_FAILURE;
-	}
+	global_pcap_handle = setup_pcap(argv[1]);
+	if (!global_pcap_handle)
+		goto err_thread;
 
-	global_pcap_handle = pcap;
 	signal(SIGINT, handle_sigint);
 
-	err_code = pcap_set_snaplen(pcap, CAPLEN);
-	if (err_code != 0) {
-		LOG("Erro ao configurar snaplen\n");
-		pcap_close(pcap);
-		return EXIT_FAILURE;
-	}
-
-	err_code = pcap_set_promisc(pcap, 1);
-	if (err_code != 0) {
-		LOG("Erro ao configurar a interface em modo promiscuo\n");
-		pcap_close(pcap);
-		return EXIT_FAILURE;
-	}
-
-	err_code = pcap_set_immediate_mode(pcap, 1);
-	if (err_code != 0) {
-		LOG("Erro ao configurar a captura em modo imediato\n");
-		pcap_close(pcap);
-		return EXIT_FAILURE;
-	}
-
-	err_code = pcap_set_buffer_size(pcap, CAPBUFFER_SIZE);
-	if (err_code != 0) {
-		LOG("Erro ao configurar tamanho do buffer da captura\n");
-		pcap_close(pcap);
-		return EXIT_FAILURE;
-	}
-
-	err_code = pcap_activate(pcap);
-	if (err_code < 0) {
-		LOG("Erro ao ativar a captura: %s\n", pcap_geterr(pcap));
-		pcap_close(pcap);
-		return EXIT_FAILURE;
-	} else if (err_code > 0) {
-		LOG("Aviso ao ativar a captura: %s\n", pcap_geterr(pcap));
-	}
-
-
-	/* ===== INICIANDO CAPTURA ===== */
-	if (pcap_datalink(pcap) != DLT_EN10MB) {
-		LOG("Fatal: linklayer header fornecido não é suportado (Ethernet requerido)");
-		pcap_close(pcap);
-		return EXIT_FAILURE;
-	}
-
 	printf("Captura iniciada: monitorando a interface %s\n", argv[1]);
+	pcap_loop(global_pcap_handle, -1, pkt_handler, (u_char *)&ctx);
 
-	pcap_loop(pcap, -1, pkt_handler, (u_char *)&ctx);
+	if (pcap_stats(global_pcap_handle, &stats) >= 0) {
+		printf("\n=== ESTATÍSTICAS DA CAPTURA ===\n");
+		printf("Pacotes recebidos pelo filtro: %d\n", stats.ps_recv);
+		printf("Pacotes dropados pelo kernel:  %d\n", stats.ps_drop);
+		printf("Pacotes dropados pela placa:   %d\n", stats.ps_ifdrop);
+		printf("===============================\n");
+	}
 
 	LOG("Captura finalizada. Iniciando encerramento gracioso...");
 
 	ctx.is_running = 0;
 	pthread_join(thread_id, NULL);
 	pthread_mutex_destroy(&ctx.mutex);
-	pcap_close(pcap);
+	pcap_close(global_pcap_handle);
 
 	kafka_client_cleanup(rk);
 	rd_kafka_wait_destroyed(5000);
-	LOG("Programa encerrado com sucesso.");
 
+	LOG("Programa encerrado com sucesso.");
 	return EXIT_SUCCESS;
+
+err_thread:
+	ctx.is_running = 0;
+	pthread_join(thread_id, NULL);
+err_kafka:
+	pthread_mutex_destroy(&ctx.mutex);
+	kafka_client_cleanup(rk);
+	return EXIT_FAILURE;
 }
 
