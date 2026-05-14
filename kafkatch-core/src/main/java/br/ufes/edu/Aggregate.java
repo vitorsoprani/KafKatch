@@ -186,6 +186,11 @@ public class Aggregate {
     }
 
 
+
+    // Para uso pelo parser
+    public Aggregate() {}
+
+    // Para uso pelo Aggregator
     public Aggregate(LocalDateTime _timestamp_start) {
         setFlow_key_count(0);
         setSrc_ip_count(0);
@@ -193,7 +198,11 @@ public class Aggregate {
         setSrc_port_count(0);
         setDst_port_count(0);
         
-        // set protocol dir
+        for (int i=0; i < getProtocol_count().length; i++)
+            setProtocol_count(0, i);
+        
+        for (int i=0; i < getDir_count().length; i++)
+            setDir_count(0, i);
 
         setPacket_count(0);
         setByte_count(0);
