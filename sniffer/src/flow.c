@@ -1,3 +1,12 @@
+/*
+ * flow.c - Implementação da tabela hash e ciclo de vida dos microflows
+ *
+ * Autor: Vitor Soprani
+ *
+ * Contém a lógica de alocação, atualização estatística e varredura
+ * da tabela de fluxos usando uthash.
+ */
+
 #include "flow.h"
 #include "parser.h"
 
@@ -7,10 +16,20 @@
 #include <netinet/in.h>  /* IPPROTO_TCP */
 #include <arpa/inet.h>
 
+/**
+ * flow_create() - Instancia e inicializa um novo fluxo
+ * @key: Chave identificadora do fluxo
+ *
+ * Aloca memória para um novo nó da tabela. O uso de calloc garante
+ * que todos os contadores e agregadores iniciem em zero.
+ * Retorna o ponteiro para o fluxo criado ou encerra em caso de falha.
+ */
 flow_t *flow_create(flow_key_t key)
 {
-	flow_t *flow = (flow_t *)calloc(1, sizeof(flow_t));
-	if (flow == NULL) {
+	flow_t *flow;
+
+	flow = (flow_t *)calloc(1, sizeof(flow_t));
+	if (!flow) {
 		fprintf(stderr, "Erro ao alocar memória\n");
 		exit(EXIT_FAILURE);
 	}
@@ -20,10 +39,20 @@ flow_t *flow_create(flow_key_t key)
 	return flow;
 }
 
+/**
+ * flow_update_stats() - Atualiza as métricas de um fluxo existente
+ * @flow:  Ponteiro para o fluxo na tabela hash
+ * @stats: Estrutura contendo os dados extraídos do pacote atual
+ *
+ * Atualiza contadores de volume, calcula o Inter-Arrival Time (IAT)
+ * contínuo e agrega as flags do cabeçalho TCP.
+ */
 void flow_update_stats(flow_t *flow, const pkt_stats_t *stats)
 {
+	double delta_usec;
+
 	if (flow->packet_count == 0) {
-		/* primeiro pacote do fluxo */
+		/* Primeiro pacote do fluxo */
 		flow->start_time = stats->timestamp;
 		flow->min_packet_size = stats->payload_size;
 		flow->max_packet_size = stats->payload_size;
@@ -35,8 +64,8 @@ void flow_update_stats(flow_t *flow, const pkt_stats_t *stats)
 			flow->max_packet_size = stats->payload_size;
 
 		/* Calcula IAT: diferença entre o pacote atual e o last_seen em microssegundos */
-		double delta_usec = (stats->timestamp.tv_sec - flow->last_seen.tv_sec) * 1000000.0 +
-		                    (stats->timestamp.tv_usec - flow->last_seen.tv_usec);
+		delta_usec = (stats->timestamp.tv_sec - flow->last_seen.tv_sec) * 1000000.0 +
+			     (stats->timestamp.tv_usec - flow->last_seen.tv_usec);
 		flow->total_iat_usec += delta_usec;
 	}
 
@@ -47,35 +76,52 @@ void flow_update_stats(flow_t *flow, const pkt_stats_t *stats)
 
 	/* Extração categórica das flags TCP */
 	if (stats->key.protocol == IPPROTO_TCP) {
-		if (stats->tcp_flags & TH_SYN) flow->tcp_syn_count++;
-		if (stats->tcp_flags & TH_FIN) flow->tcp_fin_count++;
-		if (stats->tcp_flags & TH_RST) flow->tcp_rst_count++;
-		if (stats->tcp_flags & TH_ACK) flow->tcp_ack_count++;
+		if (stats->tcp_flags & TH_SYN)
+			flow->tcp_syn_count++;
+		if (stats->tcp_flags & TH_FIN)
+			flow->tcp_fin_count++;
+		if (stats->tcp_flags & TH_RST)
+			flow->tcp_rst_count++;
+		if (stats->tcp_flags & TH_ACK)
+			flow->tcp_ack_count++;
 	}
 }
 
+/**
+ * flow_process_packet() - Ponto de entrada do pacote no motor de agregação
+ * @ctx:   Contexto global contendo a tabela hash ativa
+ * @stats: Dados estruturados do pacote interceptado
+ *
+ * Executa a busca (lookup) na tabela hash com custo O(1). Se for um miss,
+ * cria o fluxo, infere a direção da comunicação baseando-se na máscara
+ * de rede fornecida e o insere na tabela ativa.
+ */
 void flow_process_packet(sniffer_context_t *ctx, const pkt_stats_t *stats)
 {
 	flow_t *flow_entry = NULL;
-	flow_t **table_ptr = &ctx->tables[ctx->active_idx];
+	flow_t **table_ptr;
+	int src_is_local;
+	int dst_is_local;
+
+	table_ptr = &ctx->tables[ctx->active_idx];
 	HASH_FIND(hh, *table_ptr, &(stats->key), sizeof(flow_key_t), flow_entry);
-	if (flow_entry == NULL) {
-		/* miss na tabela. criação e inserção */
+
+	if (!flow_entry) {
+		/* Miss na tabela: criação e inserção */
 		flow_entry = flow_create(stats->key);
 
 		if (ctx->net_mask != 0) {
-			int src_is_local = (stats->key.src_ip & ctx->net_mask) == ctx->net_ip;
-			int dst_is_local = (stats->key.dst_ip & ctx->net_mask) == ctx->net_ip;
+			src_is_local = (stats->key.src_ip & ctx->net_mask) == ctx->net_ip;
+			dst_is_local = (stats->key.dst_ip & ctx->net_mask) == ctx->net_ip;
 
-			if (src_is_local && !dst_is_local) {
+			if (src_is_local && !dst_is_local)
 				flow_entry->direction = DIR_OUTBOUND;
-			} else if (!src_is_local && dst_is_local) {
+			else if (!src_is_local && dst_is_local)
 				flow_entry->direction = DIR_INBOUND;
-			} else if (src_is_local && dst_is_local) {
+			else if (src_is_local && dst_is_local)
 				flow_entry->direction = DIR_LATERAL;
-			} else {
+			else
 				flow_entry->direction = DIR_UNKNOWN;
-			}
 		} else {
 			flow_entry->direction = DIR_UNKNOWN;
 		}
@@ -86,34 +132,56 @@ void flow_process_packet(sniffer_context_t *ctx, const pkt_stats_t *stats)
 	flow_update_stats(flow_entry, stats);
 }
 
-const char* get_dir_string(flow_direction_t dir)
+/**
+ * get_dir_string() - Converte o enumerador de direção para string
+ * @dir: Direção a ser avaliada
+ */
+const char *get_dir_string(flow_direction_t dir)
 {
-	switch(dir) {
-		case DIR_OUTBOUND: return "OUT";
-		case DIR_INBOUND:  return "IN";
-		case DIR_LATERAL:  return "LAT";
-		default:	   return "UNK";
+	switch (dir) {
+	case DIR_OUTBOUND:
+		return "OUT";
+	case DIR_INBOUND:
+		return "IN";
+	case DIR_LATERAL:
+		return "LAT";
+	default:
+		return "UNK";
 	}
 }
 
+/**
+ * flow_table_clear() - Libera toda a memória da tabela hash
+ * @table_ptr: Ponteiro duplo para a tabela a ser destruída
+ *
+ * Itera de forma segura sobre a uthash, deletando o nó do índice e
+ * liberando o ponteiro. No final, garante que a tabela volte ao estado NULL.
+ */
 void flow_table_clear(flow_t **table_ptr)
 {
-	flow_t *current_flow, *tmp;
+	flow_t *current_flow;
+	flow_t *tmp;
 
 	/* HASH_ITER é a macro segura para deletar enquanto itera */
 	HASH_ITER(hh, *table_ptr, current_flow, tmp) {
 		HASH_DEL(*table_ptr, current_flow);
 		free(current_flow);
 	}
-	*table_ptr = NULL; /* Garante que a tabela volte ao estado inicial vazio */
+	*table_ptr = NULL;
 }
 
+/**
+ * debug_print_flow_table() - Imprime no terminal o estado atual da tabela
+ * @table: Tabela a ser impressa (usada no offline de flush)
+ */
 void debug_print_flow_table(flow_t *table)
 {
-	flow_t *current_flow, *tmp;
-	unsigned int num_flows = HASH_COUNT(table);
-
+	flow_t *current_flow;
+	flow_t *tmp;
+	unsigned int num_flows;
 	char title[128];
+
+	num_flows = HASH_COUNT(table);
 	snprintf(title, sizeof(title), "DUMP DA TABELA DE FLUXOS (UTHASH) - Total de Fluxos Ativos: %u", num_flows);
 
 	/* Linhas ajustadas para exatos 126 caracteres internos + 2 bordas laterais */
@@ -121,58 +189,62 @@ void debug_print_flow_table(flow_t *table)
 	printf("│ %-124s │\n", title);
 	printf("├────────────────────────────────────────────────┬─────┬───────┬────────┬──────────┬───────────┬──────────────┬────────────────┤\n");
 	printf("│ %-46s │ %-3s │ %-5s │ %-6s │ %-8s │ %-9s │ %-12s │ %-14s │\n", 
-		   "Fluxo (Origem -> Destino)", "Dir", "Proto", "Pkts", "Bytes", "Min/Max", "Mean IAT", "TCP (S/A/F/R)");
+	       "Fluxo (Origem -> Destino)", "Dir", "Proto", "Pkts", "Bytes", "Min/Max", "Mean IAT", "TCP (S/A/F/R)");
 	printf("├────────────────────────────────────────────────┼─────┼───────┼────────┼──────────┼───────────┼──────────────┼────────────────┤\n");
 
-	if (num_flows == 0) {
+	if (num_flows == 0)
 		printf("│ %-124s │\n", "TABELA VAZIA");
-	}
 
 	HASH_ITER(hh, table, current_flow, tmp) {
 		char src_ip[INET_ADDRSTRLEN];
 		char dst_ip[INET_ADDRSTRLEN];
+		const char *proto_str;
+		double mean_iat;
+		char flow_str[64];
+		char min_max_str[32];
+		char iat_str[32];
+		char tcp_str[32];
+
 		inet_ntop(AF_INET, &(current_flow->key.src_ip), src_ip, INET_ADDRSTRLEN);
 		inet_ntop(AF_INET, &(current_flow->key.dst_ip), dst_ip, INET_ADDRSTRLEN);
 
-		const char *proto_str = "OTHER";
-		if (current_flow->key.protocol == IPPROTO_TCP) proto_str = "TCP";
-		else if (current_flow->key.protocol == IPPROTO_UDP) proto_str = "UDP";
+		proto_str = "OTHER";
+		if (current_flow->key.protocol == IPPROTO_TCP)
+			proto_str = "TCP";
+		else if (current_flow->key.protocol == IPPROTO_UDP)
+			proto_str = "UDP";
 
-		double mean_iat = 0.0;
-		if (current_flow->packet_count > 1) {
+		mean_iat = 0.0;
+		if (current_flow->packet_count > 1)
 			mean_iat = current_flow->total_iat_usec / (current_flow->packet_count - 1);
-		}
 
-		char flow_str[64];
 		snprintf(flow_str, sizeof(flow_str), "%s:%u -> %s:%u",
-				 src_ip, ntohs(current_flow->key.src_port),
-				 dst_ip, ntohs(current_flow->key.dst_port));
+			 src_ip, ntohs(current_flow->key.src_port),
+			 dst_ip, ntohs(current_flow->key.dst_port));
 
-		char min_max_str[32];
 		snprintf(min_max_str, sizeof(min_max_str), "%u/%u",
-				 current_flow->min_packet_size, current_flow->max_packet_size);
+			 current_flow->min_packet_size, current_flow->max_packet_size);
 
-		char iat_str[32];
 		snprintf(iat_str, sizeof(iat_str), "%.1f us", mean_iat);
 
-		char tcp_str[32] = "-";
+		snprintf(tcp_str, sizeof(tcp_str), "-");
 		if (current_flow->key.protocol == IPPROTO_TCP) {
 			snprintf(tcp_str, sizeof(tcp_str), "%u/%u/%u/%u",
-					 current_flow->tcp_syn_count,
-					 current_flow->tcp_ack_count,
-					 current_flow->tcp_fin_count,
-					 current_flow->tcp_rst_count);
+				 current_flow->tcp_syn_count,
+				 current_flow->tcp_ack_count,
+				 current_flow->tcp_fin_count,
+				 current_flow->tcp_rst_count);
 		}
 
 		printf("│ %-46s │ %-3s │ %-5s │ %-6u │ %-8u │ %-9s │ %-12s │ %-14s │\n",
-			   flow_str,
-			   get_dir_string(current_flow->direction),
-			   proto_str,
-			   current_flow->packet_count,
-			   current_flow->byte_count,
-			   min_max_str,
-			   iat_str,
-			   tcp_str);
+		       flow_str,
+		       get_dir_string(current_flow->direction),
+		       proto_str,
+		       current_flow->packet_count,
+		       current_flow->byte_count,
+		       min_max_str,
+		       iat_str,
+		       tcp_str);
 	}
 	printf("└────────────────────────────────────────────────┴─────┴───────┴────────┴──────────┴───────────┴──────────────┴────────────────┘\n");
 }

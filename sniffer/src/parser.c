@@ -1,6 +1,11 @@
-#include "parser.h"
-#include "stats.h"
-#include "flow.h"
+/*
+ * parser.c - Rotinas de extração de pacotes e depuração
+ *
+ * Autor: Vitor Soprani
+ *
+ * Responsável por realizar o parse das camadas de enlace, rede e transporte,
+ * filtrando protocolos indesejados e alimentando as estatísticas agregadas.
+ */
 
 #include <net/ethernet.h>
 #include <netinet/in.h>
@@ -12,46 +17,56 @@
 #include <time.h>
 #include <string.h>
 
+#include "parser.h"
+#include "stats.h"
+#include "flow.h"
+
+
+/*
+ * debug_print_stats() - Imprime no terminal os detalhes de um pacote
+ * stats: Ponteiro para a estrutura pkt_stats_t preenchida
+ */
 void debug_print_stats(const pkt_stats_t *stats)
 {
-	/* função feita pelo gemini */
-	/* 1. Formatação de Tempo (Local) */
 	struct tm *timeinfo;
 	char time_str[20];
+	char src_ip[INET_ADDRSTRLEN];
+	char dst_ip[INET_ADDRSTRLEN];
+	const char *proto_str = "OTHER";
+	char flags_str[32] = "";
+
+	/* 1. Formatação de Tempo (Local) */
 	timeinfo = localtime(&stats->timestamp.tv_sec);
 	strftime(time_str, sizeof(time_str), "%H:%M:%S", timeinfo);
 
 	/* 2. Conversão de IP (Seguro e limpo) */
-	char src_ip[INET_ADDRSTRLEN];
-	char dst_ip[INET_ADDRSTRLEN];
 	inet_ntop(AF_INET, &(stats->key.src_ip), src_ip, INET_ADDRSTRLEN);
 	inet_ntop(AF_INET, &(stats->key.dst_ip), dst_ip, INET_ADDRSTRLEN);
 
 	/* 3. Identificação do Protocolo */
-	const char *proto_str = "OTHER";
-	if (stats->key.protocol == IPPROTO_TCP) proto_str = "TCP";
-	else if (stats->key.protocol == IPPROTO_UDP) proto_str = "UDP";
+	if (stats->key.protocol == IPPROTO_TCP)
+		proto_str = "TCP";
+	else if (stats->key.protocol == IPPROTO_UDP)
+		proto_str = "UDP";
 
 	/* =========================================
-	* PRINT FORMATADO PARA O TERMINAL (LARGURA FIXA: 66 CHARS)
-	* ========================================= */
+	 * PRINT FORMATADO PARA O TERMINAL (LARGURA FIXA: 66 CHARS)
+	 * ========================================= */
 	printf("\n┌────────────────────────────────────────────────────────────────┐\n");
 
 	/* Linha 1: Tempo e Payload travados no tamanho máximo previsto */
 	printf("│ %s.%06ld | Proto: %-5s | Payload: %-5d bytes          │\n",
-		time_str, stats->timestamp.tv_usec, proto_str, stats->payload_size);
+	       time_str, stats->timestamp.tv_usec, proto_str, stats->payload_size);
 
 	printf("├────────────────────────────────────────────────────────────────┤\n");
 
 	/* Linha 2: IPs travados em 15 caracteres (%15s) e portas em 5 (%-5u) */
-	printf("│ Flow: %15s:%-5u -> %15s:%-5u           │\n", 
-		src_ip, ntohs(stats->key.src_port), 
-		dst_ip, ntohs(stats->key.dst_port));
+	printf("│ Flow: %15s:%-5u -> %15s:%-5u            │\n",
+	       src_ip, ntohs(stats->key.src_port),
+	       dst_ip, ntohs(stats->key.dst_port));
 
 	/* Linha 3: Flags TCP dinâmicas, mas com preenchimento fixo */
 	if (stats->key.protocol == IPPROTO_TCP) {
-		char flags_str[32] = ""; // Buffer limpo para acumular as flags
-
 		if (stats->tcp_flags & TH_SYN)
 			strcat(flags_str, "SYN ");
 		if (stats->tcp_flags & TH_ACK)
@@ -70,26 +85,30 @@ void debug_print_stats(const pkt_stats_t *stats)
 		 * mesmo que tenha apenas "SYN ". O sinal de menos (-) alinha à
 		 * esquerda.
 		 */
-		printf("│ TCP Flags: [%-24s] (0x%02x)                   │\n",
-			flags_str, stats->tcp_flags);
+		printf("│ TCP Flags: [%-24s] (0x%02x)                    │\n",
+		       flags_str, stats->tcp_flags);
 	}
 
 	printf("└────────────────────────────────────────────────────────────────┘\n");
 }
 
-/*
- * typedef void (*pcap_handler)(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes);
- * u_char *user: ponteiro passado no argumento "user" em int pcap_loop(pcap_t *p, int cnt, pcap_handler callback, u_char *user);
- * struct pcap_pkthdr *h: header do pacote com timestamp e tamanhos;
- * u_char *bytes: pacote cru (truncado em CAPLEN bytes), começa com um cabeçalho no padrão retornado por pcap_datalink
- */
 void pkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
 {
 	sniffer_context_t *ctx = (sniffer_context_t *)user;
+	struct ether_header *ether_hdr;
+	struct ip *ip_hdr;
+	struct tcphdr *tcp_hdr;
+	struct udphdr *udp_hdr;
+	uint16_t ether_type;
+	uint16_t ip_tot_len;
+	int offset;
+	int ip_hdrlen;
+	int tcp_hdrlen;
+	pkt_stats_t stats = {0};
 
-	struct ether_header *ether_hdr = (struct ether_header *) bytes;
-	uint16_t ether_type = ntohs(ether_hdr->ether_type);
-	int offset = sizeof(struct ether_header);
+	ether_hdr = (struct ether_header *)bytes;
+	ether_type = ntohs(ether_hdr->ether_type);
+	offset = sizeof(struct ether_header);
 
 	if (ether_type == ETHERTYPE_VLAN) {
 		offset += 4;
@@ -98,19 +117,22 @@ void pkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
 
 	if (ether_type != ETHERTYPE_IP)
 		return;
+
 	if (h->caplen < offset + sizeof(struct ip))
 		return;
 
-	struct ip *ip_hdr = (struct ip *)(bytes + offset);
-	if (ip_hdr->ip_v != 4) /*TODO: adicionar suporte a outros protocolos */
+	ip_hdr = (struct ip *)(bytes + offset);
+
+	/* TODO: adicionar suporte a outros protocolos */
+	if (ip_hdr->ip_v != 4)
 		return;
 
-	/* multiplica por 4 para obter o valor em bytes */
-	int ip_hdrlen = ip_hdr->ip_hl * 4;
-	/* pega o tamanho total do pacote do ponto de vista da camada 3 */
-	uint16_t ip_tot_len = ntohs(ip_hdr->ip_len);
+	/* Multiplica por 4 para obter o valor em bytes */
+	ip_hdrlen = ip_hdr->ip_hl * 4;
 
-	pkt_stats_t stats = {0};
+	/* Pega o tamanho total do pacote do ponto de vista da camada 3 */
+	ip_tot_len = ntohs(ip_hdr->ip_len);
+
 	stats.timestamp = h->ts;
 
 	/* Preenchendo os dados na chave binária (NETWORK ORDER) */
@@ -121,40 +143,42 @@ void pkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *bytes)
 	if (stats.key.protocol == IPPROTO_TCP) {
 		if (h->caplen < offset + ip_hdrlen + sizeof(struct tcphdr))
 			return;
-		struct tcphdr *tcp_hdr = (struct tcphdr *)(bytes + offset + ip_hdrlen);
+
+		tcp_hdr = (struct tcphdr *)(bytes + offset + ip_hdrlen);
 
 		stats.key.src_port = tcp_hdr->th_sport;
 		stats.key.dst_port = tcp_hdr->th_dport;
 		stats.tcp_flags = tcp_hdr->th_flags;
 
 		/* Cálculo exato do payload TCP */
-		int tcp_hdrlen = tcp_hdr->th_off * 4;
+		tcp_hdrlen = tcp_hdr->th_off * 4;
 		stats.payload_size = ip_tot_len - ip_hdrlen - tcp_hdrlen;
 
 	} else if (stats.key.protocol == IPPROTO_UDP) {
 		if (h->caplen < offset + ip_hdrlen + sizeof(struct udphdr))
 			return;
-		struct udphdr *udp_hdr = (struct udphdr *)(bytes + offset + ip_hdrlen);
+
+		udp_hdr = (struct udphdr *)(bytes + offset + ip_hdrlen);
 
 		stats.key.src_port = udp_hdr->uh_sport;
 		stats.key.dst_port = udp_hdr->uh_dport;
 
-		/* Cálculo do payload UDP (Cabeçalho UDP tem tamanho fixo); */
+		/* Cálculo do payload UDP (Cabeçalho UDP tem tamanho fixo) */
 		stats.payload_size = ip_tot_len - ip_hdrlen - 8;
+
 	} else {
-		return; /* Ignora ICMP, etc */
+		/* Ignora ICMP, etc */
+		return;
 	}
 
-	/* prevenção contra pacotes corrompidos (underflow) */
-	if (stats.payload_size < 0) {
+	/* Prevenção contra pacotes corrompidos (underflow) */
+	if (stats.payload_size < 0)
 		stats.payload_size = 0;
-	}
+
+	/* SEÇÃO CRÍTICA */
 	pthread_mutex_lock(&ctx->mutex);
-
 	flow_process_packet(ctx, &stats);
-
 	pthread_mutex_unlock(&ctx->mutex);
-	flow_process_packet(ctx, &stats);
 
-	//debug_print_stats(&stats);
+	/* debug_print_stats(&stats); */
 }
