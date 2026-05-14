@@ -148,9 +148,10 @@ public class Flow implements Serializable {
     }
 
 
-    // Para uso pelo desserializador
+    // DEPRECIADO — Para uso pelo desserializador
     public Flow() {}
 
+    // Para uso pelo produtor(?)
     public Flow(String _flow_key,
                 String _src_ip, String _dst_ip,
                 short _src_port, short _dst_port,
@@ -181,5 +182,43 @@ public class Flow implements Serializable {
         setTcp_fin_count(_tcp_fin_count);
         setTcp_rst_count(_tcp_rst_count);
         setTcp_ack_count(_tcp_ack_count);
+    }
+
+    // Para uso pelo parser
+    public Flow(String _src_ip, String _dst_ip,
+                short _src_port, short _dst_port,
+                FlowProtocol _protocol, FlowDirection _dir,
+                int _packet_count, int _byte_count,
+                short _min_packet_size, short _max_packet_size,
+                LocalDateTime _timestamp, double _mean_iat_us,
+                int _tcp_syn_count, int _tcp_fin_count,
+                int _tcp_rst_count, int _tcp_ack_count) {
+
+        setSrc_ip(_src_ip);
+        setDst_ip(_dst_ip);
+        setSrc_port(_src_port);
+        setDst_port(_dst_port);
+        setProtocol(_protocol);
+        setDir(_dir);
+
+        setPacket_count(_packet_count);
+        setByte_count(_byte_count);
+        setMin_packet_size(_min_packet_size);
+        setMax_packet_size(_max_packet_size);
+
+        setTimestamp(_timestamp);
+        setMean_iat_us(_mean_iat_us);
+
+        setTcp_syn_count(_tcp_syn_count);
+        setTcp_fin_count(_tcp_fin_count);
+        setTcp_rst_count(_tcp_rst_count);
+        setTcp_ack_count(_tcp_ack_count);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(_src_ip).append(':').append(_src_port).append('-');
+        sb.append(_dst_ip).append(':').append(_dst_port).append('-');
+        sb.append(_protocol.name());
+        String _flow_key = sb.toString();
+        setFlow_key(_flow_key);
     }
 }
