@@ -91,9 +91,9 @@ rd_kafka_t *kafka_client_init(const char *brokers)
 
 	/* * CONFIGURAÇÃO 3: Nível de Confirmação (Acks)
 	 * Define o nível de garantia de entrega exigido pelo produtor.
-	 * "1" = Requer apenas a confirmação do broker Líder da partição.
+	 * "0" = Não exisge resposta do servidor. "envia e esquece"
 	 */
-	rd_kafka_conf_set(conf, "acks", "1", errstr, sizeof(errstr));
+	rd_kafka_conf_set(conf, "acks", "0", errstr, sizeof(errstr));
 
 	/* Registro do callback de verificação de entrega (Delivery Report) */
 	rd_kafka_conf_set_dr_msg_cb(conf, dr_msg_cb);
@@ -214,7 +214,7 @@ void kafka_client_cleanup(rd_kafka_t *producer)
 {
 	if (producer) {
 		LOG("Limpando a fila final do Kafka (aguarde)...");
-		
+
 		/* Dá ao sistema 5 segundos para transmitir buffers não despachados */
 		rd_kafka_flush(producer, 5000);
 		rd_kafka_destroy(producer);
