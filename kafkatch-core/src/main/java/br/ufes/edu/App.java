@@ -68,6 +68,9 @@ public class App {
                 long currentTime = System.currentTimeMillis();
                 if (currentTime - lastWindowFlush >= windowSizeMs) {
                     System.out.println("--- Fechando janela de 60s: " + currentAggregate.getTimestamp_start() + " ---");
+                    if (currentAggregate.getTimestamp_end() == null) {
+                        currentAggregate.setTimestamp_end(LocalDateTime.now());
+                    }
 
                     try {
                         String jsonOut = AggregatedFlowParser.toJsonString(currentAggregate);

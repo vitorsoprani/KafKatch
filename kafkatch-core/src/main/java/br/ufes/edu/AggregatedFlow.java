@@ -65,7 +65,7 @@ public class AggregatedFlow {
             this.unique_flow_count++;
         }
         
-        this.timestamp_end = flow.getTimestamp();
+        this.timestamp_end = LocalDateTime.now();
     }
 
     public double getAveragePacketSize() {
@@ -106,6 +106,10 @@ public class AggregatedFlow {
     }
     public long getTcp_rst_total() {
         return tcp_rst_total;
+    }
+
+    public void setTimestamp_end(LocalDateTime timestamp) {
+        this.timestamp_end = timestamp;
     }
     
     // necessário para o jackson (parser)
