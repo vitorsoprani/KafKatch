@@ -33,7 +33,7 @@ public class App {
         prodProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         prodProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
 
-        long windowSizeMs = 30000; // 60 segundos
+        long windowSizeMs = 60000; // 60 segundos
         long lastWindowFlush = System.currentTimeMillis();
         AggregatedFlow currentAggregate = new AggregatedFlow(LocalDateTime.now());
 
