@@ -32,8 +32,9 @@ public class App {
         prodProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
         prodProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         prodProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        prodProps.put(ProducerConfig.ACKS_CONFIG, "all");
 
-        long windowSizeMs = 30000; // 60 segundos
+        long windowSizeMs = 60000; // 60 segundos
         long lastWindowFlush = System.currentTimeMillis();
         AggregatedFlow currentAggregate = new AggregatedFlow(LocalDateTime.now());
 
@@ -50,6 +51,7 @@ public class App {
                     try {
                         Flow flow = FlowParser.readJson(record.value(), record.timestamp());
 
+                        /*
                         System.out.println("=====================================");
                         System.out.println("Hora da Captura : " + flow.getTimestamp());
                         System.out.println("Origem          : " + flow.getSrc_ip() + ":" + flow.getSrc_port());
@@ -58,6 +60,7 @@ public class App {
                         System.out.println("Direção         : " + flow.getDir());
                         System.out.println("Tamanho (Bytes) : " + flow.getByte_count());
                         System.out.println("=====================================\n");
+                        */
                         
                         currentAggregate.addFlow(flow);
                     } catch (Exception e) {
