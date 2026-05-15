@@ -27,20 +27,20 @@ hs_err_pid*
 replay_pid*
 
 
-kafkatch-core/target/
-kafkatch-core/pom.xml.tag
-kafkatch-core/pom.xml.releaseBackup
-kafkatch-core/pom.xml.versionsBackup
-kafkatch-core/pom.xml.next
-kafkatch-core/release.properties
-kafkatch-core/dependency-reduced-pom.xml
-kafkatch-core/buildNumber.properties
-kafkatch-core/.mvn/timing.properties
+kafkatch*/target/
+kafkatch*/pom.xml.tag
+kafkatch*/pom.xml.releaseBackup
+kafkatch*/pom.xml.versionsBackup
+kafkatch*/pom.xml.next
+kafkatch*/release.properties
+kafkatch*/dependency-reduced-pom.xml
+kafkatch*/buildNumber.properties
+kafkatch*/.mvn/timing.properties
 # https://maven.apache.org/tools/wrapper/#Usage_with_or_without_Binary_JAR
-kafkatch-core/.mvn/wrapper/maven-wrapper.jar
+kafkatch*/.mvn/wrapper/maven-wrapper.jar
 
 # Eclipse m2e generated files
 # Eclipse Core
-kafkatch-core/.project
+kafkatch*/.project
 # JDT-specific (Eclipse Java Development Tools)
-kafkatch-core/.classpath
+kafkatch*/.classpath

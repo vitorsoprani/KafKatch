@@ -1,10 +1,16 @@
 package br.ufes.edu;
 
-import com.sshtools.twoslices.Toast;
-import com.sshtools.twoslices.ToastType;
+import java.time.LocalDateTime;
 
 public class NotifierTest {
     public static void main(String[] args) throws Exception {
-        Toast.toast(ToastType.INFO, "Imagem anexada", "Você esperava que fosse um exemplo de alerta, mas era só uma mensagem sem sentido.");
+        Notifier notif = new Notifier(5, 100, 100, 10);
+
+        Flow f = new Flow(null, null, 0, 0, FlowProtocol.TCP, FlowDirection.INBOUND, 10, 1000, 50, 200, LocalDateTime.now(), 10, 10, 0, 0, 0);
+        AggregatedFlow a = new AggregatedFlow(f.getTimestamp());
+        a.addFlow(f);
+        
+        notif.addAggregate_sample(a);
+        notif.checkForAnomalies();
     }
 }
