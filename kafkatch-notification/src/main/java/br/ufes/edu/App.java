@@ -5,7 +5,6 @@ import java.util.Collections;
 import java.util.Properties;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -40,17 +39,15 @@ public class App {
             while (true) {
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(5));
 
-                for (ConsumerRecord<String,String> record : records) {
-                    try {
-                        System.out.println("Evento recebido, atualizando estatísticas...");
-                        AggregatedFlow a = AggregatedFlowParser.fromJsonString(record.value());
+                records.forEach(r -> { try {
+                                           System.out.println("Evento recebido, atualizando estatísticas...");
+                                           AggregatedFlow a = AggregatedFlowParser.fromJsonString(r.value());
 
-                        notif.addAggregate_sample(a);
-                        notif.checkForAnomalies();
-                    } catch (Exception e) {
-                        System.err.println("Erro ao processar mensagem: " + e.getMessage());
-                    }
-                }
+                                           notif.addAggregate_sample(a);
+                                           notif.checkForAnomalies();
+                                       } catch (Exception e) {
+                                           System.err.println("Erro ao processar mensagem: " + e.getMessage());
+                                       } });
             }
         } catch (Exception e) {
             e.printStackTrace();

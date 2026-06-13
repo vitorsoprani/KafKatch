@@ -1,6 +1,7 @@
 package br.ufes.edu;
 
 import java.util.ArrayList;
+import java.util.DoubleSummaryStatistics;
 
 import com.sshtools.twoslices.Toast;
 import com.sshtools.twoslices.ToastType;
@@ -10,9 +11,9 @@ public class Notifier {
     private int sample_max_size;
 
     // Estatísticas das amostras armazenadas
-    private long bytes_inbound_sum, bytes_inbound_record,
-                 bytes_outbound_sum, bytes_outbound_record;
-    private int  unique_flow_sum, unique_flow_record;
+    private DoubleSummaryStatistics bytes_inbound_stats,
+                                    bytes_outbound_stats,
+                                    unique_flow_stats;
 
     // Valores de alerta ao usuário
     private long bytes_inbound_limit,
@@ -35,87 +36,35 @@ public class Notifier {
         return aggregate_sample;
     }
     public void addAggregate_sample(AggregatedFlow newest) {
-        // Começa por introduzir os valores da nova amostra
         aggregate_sample.add(newest);
-        if (newest.getBytes_inbound() > getBytes_inbound_record())
-            setBytes_inbound_record(newest.getBytes_inbound());
+        if (aggregate_sample.size() > getSample_max_size())
+            aggregate_sample.remove(0);
 
-        if (newest.getBytes_outbound() > getBytes_outbound_record())
-            setBytes_outbound_record(newest.getBytes_outbound());
-
-        if (newest.getUnique_flow_count() > getUnique_flow_record())
-            setUnique_flow_record(newest.getUnique_flow_count());
-
-        addBytes_inbound_sum(newest.getBytes_inbound());
-        addBytes_outbound_sum(newest.getBytes_outbound());
-        addUnique_flow_sum(newest.getUnique_flow_count());
-
-
-        // Se o tamanho máximo da amostra foi excedido, remove a mais antiga
-        if (getSample_size() > getSample_max_size()) {
-            AggregatedFlow oldest = aggregate_sample.remove(0);
-
-            // Se a mais antiga era recordista, deve-se buscar outra que a substitua
-            if ((oldest.getBytes_inbound() >= getBytes_inbound_record()) ||
-                (oldest.getBytes_outbound() >= getBytes_outbound_record()) ||
-                (oldest.getUnique_flow_count() >= getUnique_flow_record()))
-                updateRecords();
-            
-            addBytes_inbound_sum(-oldest.getBytes_inbound());
-            addBytes_outbound_sum(-oldest.getBytes_outbound());
-            addUnique_flow_sum(-oldest.getUnique_flow_count());
-        }
+        updateStats();
     }
 
     public long getBytes_inbound_sum() {
-        return bytes_inbound_sum;
-    }
-    public void setBytes_inbound_sum(long bytes_inbound_sum) {
-        this.bytes_inbound_sum = bytes_inbound_sum;
-    }
-    public void addBytes_inbound_sum(long amount) {
-        bytes_inbound_sum += amount;
+        return (long)bytes_inbound_stats.getSum();
     }
 
     public long getBytes_inbound_record() {
-        return bytes_inbound_record;
-    }
-    public void setBytes_inbound_record(long bytes_inbound_record) {
-        this.bytes_inbound_record = bytes_inbound_record;
+        return (long)bytes_inbound_stats.getMax();
     }
 
     public long getBytes_outbound_sum() {
-        return bytes_outbound_sum;
-    }
-    public void setBytes_outbound_sum(long bytes_outbound_sum) {
-        this.bytes_outbound_sum = bytes_outbound_sum;
-    }
-    public void addBytes_outbound_sum(long amount) {
-        bytes_outbound_sum += amount;
+        return (long)bytes_outbound_stats.getSum();
     }
 
     public long getBytes_outbound_record() {
-        return bytes_outbound_record;
-    }
-    public void setBytes_outbound_record(long bytes_outbound_record) {
-        this.bytes_outbound_record = bytes_outbound_record;
+        return (long)bytes_outbound_stats.getMax();
     }
 
     public int getUnique_flow_sum() {
-        return unique_flow_sum;
-    }
-    public void setUnique_flow_sum(int unique_flow_sum) {
-        this.unique_flow_sum = unique_flow_sum;
-    }
-    public void addUnique_flow_sum(int amount) {
-        unique_flow_sum += amount;
+        return (int)unique_flow_stats.getSum();
     }
 
     public int getUnique_flow_record() {
-        return unique_flow_record;
-    }
-    public void setUnique_flow_record(int unique_flow_record) {
-        this.unique_flow_record = unique_flow_record;
+        return (int)unique_flow_stats.getMax();
     }
 
     public long getBytes_inbound_limit() {
@@ -140,24 +89,18 @@ public class Notifier {
     }
 
 
-    public void updateRecords() {
-        long bytes_inbound=-1, bytes_outbound=-1;
-        int  unique_flows=-1;
+    public void updateStats() {
+        DoubleSummaryStatistics bytes_inbound = new DoubleSummaryStatistics();
+        aggregate_sample.forEach(a -> bytes_inbound_stats.accept(a.getBytes_inbound()));
+        bytes_inbound_stats = bytes_inbound;
 
-        for (AggregatedFlow a : aggregate_sample) {
-            if (a.getBytes_inbound() > bytes_inbound)
-                bytes_inbound = a.getBytes_inbound();
+        DoubleSummaryStatistics bytes_outbound = new DoubleSummaryStatistics();
+        aggregate_sample.forEach(a -> bytes_outbound_stats.accept(a.getBytes_outbound()));
+        bytes_outbound_stats = bytes_outbound;
 
-            if (a.getBytes_outbound() > bytes_outbound)
-                bytes_outbound = a.getBytes_outbound();
-
-            if (a.getUnique_flow_count() > unique_flows)
-                unique_flows = a.getUnique_flow_count();
-        }
-
-        setBytes_inbound_record(bytes_inbound);
-        setBytes_outbound_record(bytes_outbound);
-        setUnique_flow_record(unique_flows);
+        DoubleSummaryStatistics unique_flow = new DoubleSummaryStatistics();
+        aggregate_sample.forEach(a -> unique_flow.accept(a.getUnique_flow_count()));
+        unique_flow_stats = unique_flow;
     }
 
     public void checkForAnomalies() {
@@ -182,12 +125,9 @@ public class Notifier {
                     int _unique_flows_limit) {
         setSample_max_size(_sample_max_size);
 
-        setBytes_inbound_record(-1);
-        setBytes_inbound_sum(0);
-        setBytes_outbound_record(-1);
-        setBytes_outbound_sum(0);
-        setUnique_flow_record(-1);
-        setUnique_flow_sum(0);
+        // Criando um objeto que apenas registra a ausência de valores
+        // caso um método seja chamado antes de adicionar um Aggregate
+        bytes_inbound_stats = bytes_outbound_stats = unique_flow_stats = new DoubleSummaryStatistics();
 
         setBytes_inbound_limit(_bytes_inbound_limit);
         setBytes_outbound_limit(_bytes_outbound_limit);
