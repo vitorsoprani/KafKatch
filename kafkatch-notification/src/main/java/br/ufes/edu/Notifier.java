@@ -37,7 +37,8 @@ public class Notifier {
     }
     public void addAggregate_sample(AggregatedFlow newest) {
         aggregate_sample.add(newest);
-        if (aggregate_sample.size() > getSample_max_size())
+        
+        if (getSample_size() > getSample_max_size())
             aggregate_sample.remove(0);
 
         updateStats();
