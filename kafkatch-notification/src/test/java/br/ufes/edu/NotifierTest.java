@@ -2,6 +2,11 @@ package br.ufes.edu;
 
 import java.time.LocalDateTime;
 
+import br.ufes.edu.domain.AggregatedFlow;
+import br.ufes.edu.domain.Flow;
+import br.ufes.edu.domain.FlowDirection;
+import br.ufes.edu.domain.FlowProtocol;
+
 public class NotifierTest {
     public static void main(String[] args) throws Exception {
         Notifier notif = new Notifier(5, 100, 100, 10);

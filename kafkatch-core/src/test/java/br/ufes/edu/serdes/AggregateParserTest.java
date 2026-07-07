@@ -1,6 +1,8 @@
-package br.ufes.edu;
+package br.ufes.edu.serdes;
 
 import java.time.LocalDateTime;
+
+import br.ufes.edu.domain.AggregatedFlow;
 
 public class AggregateParserTest {
     public static void main(String[] args) throws Exception {

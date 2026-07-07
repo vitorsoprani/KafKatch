@@ -1,9 +1,11 @@
-package br.ufes.edu;
+package br.ufes.edu.serdes;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+
+import br.ufes.edu.domain.AggregatedFlow;
 
 public class AggregatedFlowParser {
     private static final ObjectMapper objectMapper = new ObjectMapper()
