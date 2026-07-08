@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.KeyValue;
@@ -15,6 +16,7 @@ import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.kstream.Branched;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.Named;
+import org.apache.kafka.streams.kstream.Produced;
 
 import br.ufes.edu.domain.AggregatedFlow;
 import br.ufes.edu.serdes.AggregatedFlowParser;
@@ -27,12 +29,14 @@ public class Splitter {
         props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
         props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
 
 
         final StreamsBuilder builder = new StreamsBuilder();
 
         KStream<String, String> source = builder.stream("network-microflows-aggregated");
-        KStream<String, AggregatedFlow> parsed = source.mapValues(value -> { AggregatedFlow a = null;
+        KStream<String, AggregatedFlow> parsed = source.peek((key, value) -> System.out.println(key + " : " + value))
+                                                       .mapValues(value -> { AggregatedFlow a = null;
                                                                              try {
                                                                                  a = AggregatedFlowParser.fromJsonString(value);
                                                                              }
@@ -43,16 +47,17 @@ public class Splitter {
         Map<String, KStream<String, Long>> branches = parsed.flatMap((key, value) -> { List<KeyValue<String, Long>> result = new LinkedList<>();
                                                                                         result.add(KeyValue.pair("in", value.getBytes_inbound()));
                                                                                         result.add(KeyValue.pair("out", value.getBytes_outbound()));
-                                                                                        result.add(KeyValue.pair("flow", (long)value.getUnique_flow_count()));
                                                                                         return result; })
+                                                            .peek((key, value) -> System.out.println(key + " : " + value))
                                                             .split(Named.as("branch-")).branch((key, value) -> key.startsWith("in"), Branched.as("in"))
                                                                                 .branch((key, value) -> key.startsWith("out"), Branched.as("out"))
-                                                                                .branch((key, value) -> key.startsWith("flow"), Branched.as("flow"))
                                                                                 .noDefaultBranch();
+        KStream<String, Integer> flowRecords = parsed.map((key, value) -> KeyValue.pair("flow", value.getUnique_flow_count()))
+                                                     .peek((key, value) -> System.out.println(key + " : " + value));
                                                                                             
-        branches.get("branch-in").to("network-summary-bytes-inbound");
-        branches.get("branch-out").to("network-summary-bytes-outbound");
-        branches.get("branch-flow").to("network-summary-unique-flow-count");
+        branches.get("branch-in").to("network-summary-bytes-inbound", Produced.with(Serdes.String(), Serdes.Long()));
+        branches.get("branch-out").to("network-summary-bytes-outbound", Produced.with(Serdes.String(), Serdes.Long()));
+        flowRecords.to("network-summary-unique-flow-count", Produced.with(Serdes.String(), Serdes.Integer()));
 
         final Topology topology = builder.build();
         System.out.println(topology.describe());
