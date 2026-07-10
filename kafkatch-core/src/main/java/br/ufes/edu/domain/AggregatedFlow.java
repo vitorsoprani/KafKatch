@@ -6,7 +6,7 @@ import java.util.Set;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonFormat;
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonView;
 
 // A maioria dos campos abaixo só tem getter (sem setter). Isso é o suficiente
 // para SERIALIZAR (produzir o JSON de saída), mas não para DESSERIALIZAR de
@@ -17,6 +17,12 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 // os campos privados diretamente via reflexão quando não há setter.
 @JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.ANY)
 public class AggregatedFlow {
+    // Marcador usado com @JsonView para distinguir a serialização "completa"
+    // (usada internamente pelo Kafka Streams no state store) da serialização
+    // "pública" (usada no JSON final publicado no tópico de saída). Ver
+    // AggregatedFlowParser.toInternalJsonString / fromInternalJsonString.
+    public static class InternalView {}
+
     // Janela de tempo
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS")
     private LocalDateTime timestamp_start;
@@ -33,8 +39,10 @@ public class AggregatedFlow {
     // Estatísticas de Conexões
     private int unique_flow_count = 0;
     
-    // controle interno de unicidade (não vai para o JSON)
-    @JsonIgnore
+    // controle interno de unicidade. Fica de fora do JSON "público" (o que vai
+    // pro tópico de saída), mas PRECISA ser incluído na serialização interna
+    // usada pelo state store — ver AggregatedFlow.InternalView.
+    @JsonView(InternalView.class)
     private Set<String> flowKeys = new HashSet<>();
 
     // Estatísticas TCP

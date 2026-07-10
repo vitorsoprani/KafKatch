@@ -74,14 +74,17 @@ public class App {
         Serde<Flow> flowSerde = Serdes.serdeFrom(new FlowSerializer(), new FlowDeserializer());
 
         // SERDE PARA AGGREGATEDFLOW
-        // Usa o AggregatedFlowParser nos dois sentidos (em vez de misturar com um
-        // ObjectMapper "cru" separado), garantindo que serialização e desserialização
-        // usem exatamente a mesma configuração de Jackson (JavaTimeModule, formatação
-        // de datas etc.).
+        // IMPORTANTE: aqui usamos toInternalJsonString/fromInternalJsonString
+        // (não toJsonString/fromJsonString). Esse serde é usado pelo state
+        // store interno do Kafka Streams (Materialized.with abaixo), e precisa
+        // preservar TODOS os campos — incluindo o flowKeys, que é essencial
+        // para a contagem de fluxos únicos sobreviver entre um evento e outro.
+        // O toJsonString "público" (sem flowKeys) continua sendo usado só no
+        // final da topologia, para montar o JSON que vai pro tópico de saída.
         Serializer<AggregatedFlow> aggSerializer = (topic, data) -> {
             if (data == null) return null;
             try {
-                return AggregatedFlowParser.toJsonString(data).getBytes("UTF-8");
+                return AggregatedFlowParser.toInternalJsonString(data).getBytes("UTF-8");
             } catch (Exception e) {
                 System.err.println("[aggSerializer] Falha ao serializar AggregatedFlow: " + e.getMessage());
                 return null;
@@ -90,7 +93,7 @@ public class App {
         Deserializer<AggregatedFlow> aggDeserializer = (topic, data) -> {
             if (data == null) return null;
             try {
-                return AggregatedFlowParser.fromJsonString(new String(data, "UTF-8"));
+                return AggregatedFlowParser.fromInternalJsonString(new String(data, "UTF-8"));
             } catch (Exception e) {
                 System.err.println("[aggDeserializer] Falha ao desserializar AggregatedFlow: " + e.getMessage());
                 return null;
