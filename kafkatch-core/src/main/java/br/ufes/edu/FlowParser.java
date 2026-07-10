@@ -1,44 +1,50 @@
 package br.ufes.edu;
 
-import java.io.StringReader;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
-import jakarta.json.Json;
-import jakarta.json.JsonArray;
-import jakarta.json.JsonObject;
-import jakarta.json.JsonReader;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class FlowParser {
-    public static Flow readJson(String json, long kafka_timestamp) {
-        JsonReader reader = Json.createReader(new StringReader(json));
-        JsonObject object = reader.readObject();
+    
+    // Instância única do ObjectMapper (pesada de criar, boa prática deixar estática)
+    private static final ObjectMapper mapper = new ObjectMapper();
 
-        String src_ip = object.getString("src_ip"),
-               dst_ip = object.getString("dst_ip");
-        short  src_port = (short)object.getInt("src_port"),
-               dst_port = (short)object.getInt("dst_port");
-        FlowProtocol protocol = FlowProtocol.valueOf(object.getString("protocol"));
-        FlowDirection dir = FlowDirection.valueOf(object.getString("dir"));
-
-        int   packets = object.getInt("packets"),
-              bytes = object.getInt("bytes");
-        short min_size = (short)object.getInt("min_size"),
-              max_size = (short)object.getInt("max_size");
+    public static Flow readJson(String json, long kafka_timestamp) throws Exception {
         
-        // Timestamp do Kafka é tempo Unix, na escala de ms
-        // Necessário dividir por 1000 para os segundos inteiros
-        // e multiplicar por 1000000 para converter em ns
-        int nanoOfSecond = (int)(kafka_timestamp%1000) * 1000000;
-        LocalDateTime timestamp = LocalDateTime.ofEpochSecond(kafka_timestamp/1000, nanoOfSecond, null);
-        double mean_iat_us = object.getJsonNumber("mean_iat_us").doubleValue();
+        // Lê a string inteira e transforma numa árvore de "Nós" do Jackson
+        JsonNode root = mapper.readTree(json);
 
-        JsonArray array = object.getJsonArray("tcp");
-        JsonObject tcp = array.getJsonObject(0);
-        int tcp_syn_count = tcp.getInt("syn"),
-            tcp_fin_count = tcp.getInt("fin"),
-            tcp_rst_count = tcp.getInt("rst"),
-            tcp_ack_count = tcp.getInt("ack");
+        String src_ip = root.get("src_ip").asText();
+        String dst_ip = root.get("dst_ip").asText();
+        int src_port = root.get("src_port").asInt();
+        int dst_port = root.get("dst_port").asInt();
+        
+        FlowProtocol protocol = FlowProtocol.valueOf(root.get("protocol").asText());
+        FlowDirection dir = FlowDirection.valueOf(root.get("dir").asText());
 
+        int packets = root.get("packets").asInt();
+        int bytes = root.get("bytes").asInt();
+        int min_size = root.get("min_size").asInt();
+        int max_size = root.get("max_size").asInt();
+        
+        LocalDateTime timestamp = LocalDateTime.ofInstant(
+            Instant.ofEpochMilli(kafka_timestamp),
+            ZoneOffset.systemDefault()
+        );
+        
+        double mean_iat_us = root.get("mean_iat_us").asDouble();
+
+        // Navegando para dentro do objeto "tcp"
+        JsonNode tcp = root.get("tcp");
+        int tcp_syn_count = tcp.get("syn").asInt();
+        int tcp_fin_count = tcp.get("fin").asInt();
+        int tcp_rst_count = tcp.get("rst").asInt();
+        int tcp_ack_count = tcp.get("ack").asInt();
+
+        // Constrói e retorna o objeto Flow com todos os dados
         return new Flow(src_ip, dst_ip,
                         src_port, dst_port,
                         protocol, dir,

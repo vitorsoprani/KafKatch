@@ -7,13 +7,13 @@ public class Flow implements Serializable {
     // Informacoes da conexao monitorada
     private String flow_key,
                    src_ip, dst_ip;
-    private short  src_port, dst_port;
+    private int  src_port, dst_port;
     private FlowProtocol  protocol;
     private FlowDirection dir;
 
     // Relatório sobre os pacotes capturados
     private int   packet_count, byte_count;
-    private short min_packet_size, max_packet_size;
+    private int min_packet_size, max_packet_size;
 
     // Informações de tempo
     private LocalDateTime timestamp;
@@ -46,17 +46,17 @@ public class Flow implements Serializable {
         this.dst_ip = dst_ip;
     }
 
-    public short getSrc_port() {
+    public int getSrc_port() {
         return src_port;
     }
-    public void setSrc_port(short src_port) {
+    public void setSrc_port(int src_port) {
         this.src_port = src_port;
     }
 
-    public short getDst_port() {
+    public int getDst_port() {
         return dst_port;
     }
-    public void setDst_port(short dst_port) {
+    public void setDst_port(int dst_port) {
         this.dst_port = dst_port;
     }
 
@@ -89,17 +89,17 @@ public class Flow implements Serializable {
         this.byte_count = byte_count;
     }
 
-    public short getMin_packet_size() {
+    public int getMin_packet_size() {
         return min_packet_size;
     }
-    public void setMin_packet_size(short min_packet_size) {
+    public void setMin_packet_size(int min_packet_size) {
         this.min_packet_size = min_packet_size;
     }
 
-    public short getMax_packet_size() {
+    public int getMax_packet_size() {
         return max_packet_size;
     }
-    public void setMax_packet_size(short max_packet_size) {
+    public void setMax_packet_size(int max_packet_size) {
         this.max_packet_size = max_packet_size;
     }
 
@@ -154,10 +154,10 @@ public class Flow implements Serializable {
     // Para uso pelo produtor(?)
     public Flow(String _flow_key,
                 String _src_ip, String _dst_ip,
-                short _src_port, short _dst_port,
+                int _src_port, int _dst_port,
                 FlowProtocol _protocol, FlowDirection _dir,
                 int _packet_count, int _byte_count,
-                short _min_packet_size, short _max_packet_size,
+                int _min_packet_size, int _max_packet_size,
                 LocalDateTime _timestamp, double _mean_iat_us,
                 int _tcp_syn_count, int _tcp_fin_count,
                 int _tcp_rst_count, int _tcp_ack_count) {
@@ -186,10 +186,10 @@ public class Flow implements Serializable {
 
     // Para uso pelo parser
     public Flow(String _src_ip, String _dst_ip,
-                short _src_port, short _dst_port,
+                int _src_port, int _dst_port,
                 FlowProtocol _protocol, FlowDirection _dir,
                 int _packet_count, int _byte_count,
-                short _min_packet_size, short _max_packet_size,
+                int _min_packet_size, int _max_packet_size,
                 LocalDateTime _timestamp, double _mean_iat_us,
                 int _tcp_syn_count, int _tcp_fin_count,
                 int _tcp_rst_count, int _tcp_ack_count) {
