@@ -15,6 +15,11 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
+import br.ufes.edu.domain.AggregatedFlow;
+import br.ufes.edu.domain.Flow;
+import br.ufes.edu.serdes.AggregatedFlowParser;
+import br.ufes.edu.serdes.FlowParser;
+
 public class App {
     public static void main(String[] args) {
         

@@ -1,4 +1,4 @@
-package br.ufes.edu;
+package br.ufes.edu.serdes;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -6,6 +6,10 @@ import java.time.ZoneOffset;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import br.ufes.edu.domain.Flow;
+import br.ufes.edu.domain.FlowDirection;
+import br.ufes.edu.domain.FlowProtocol;
 
 public class FlowParser {
     

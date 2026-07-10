@@ -1,4 +1,4 @@
-package br.ufes.edu;
+package br.ufes.edu.serdes;
 
 import java.time.LocalDateTime;
 import java.util.Properties;
@@ -7,6 +7,10 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
+
+import br.ufes.edu.domain.Flow;
+import br.ufes.edu.domain.FlowDirection;
+import br.ufes.edu.domain.FlowProtocol;
 
 // CLASSE DEPRECIADA — UTILIZE FlowParserTest.java
 public class FlowSerializerTest {

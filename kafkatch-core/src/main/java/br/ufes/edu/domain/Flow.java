@@ -1,4 +1,4 @@
-package br.ufes.edu;
+package br.ufes.edu.domain;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;

@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import com.sshtools.twoslices.Toast;
 import com.sshtools.twoslices.ToastType;
 
+import br.ufes.edu.domain.AggregatedFlow;
+
 public class Notifier {
     private final ArrayList<AggregatedFlow> aggregate_sample = new ArrayList<>();
     private int sample_max_size;

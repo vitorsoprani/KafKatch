@@ -13,6 +13,9 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import com.sshtools.twoslices.Toast;
 import com.sshtools.twoslices.ToastType;
 
+import br.ufes.edu.domain.AggregatedFlow;
+import br.ufes.edu.serdes.AggregatedFlowParser;
+
 public class App {
     public static void main(String[] args){
         // CONFIGURAÇÕES DO CONSUMIDOR:
