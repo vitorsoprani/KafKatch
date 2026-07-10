@@ -22,12 +22,12 @@ import org.apache.kafka.streams.kstream.Suppressed;
 import org.apache.kafka.streams.kstream.TimeWindows;
 import org.apache.kafka.streams.kstream.Suppressed.BufferConfig;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import br.ufes.edu.domain.AggregatedFlow;
 import br.ufes.edu.domain.Flow;
 import br.ufes.edu.serdes.AggregatedFlowParser;
+import br.ufes.edu.serdes.FlowDeserializer;
 import br.ufes.edu.serdes.FlowParser;
+import br.ufes.edu.serdes.FlowSerializer;
 
 // import java.time.Duration;
 // import java.time.LocalDateTime;
@@ -65,51 +65,34 @@ public class App {
 
         final Integer windowSize = 10;
 
-        ObjectMapper mapper = new ObjectMapper();
-
         // SERDE PARA FLOW
-        Serializer<Flow> flowSerializer = (topic, data) -> {
-            if (data == null) return null;
-            try {
-                return mapper.writeValueAsBytes(data);
-            } catch (Exception e) {
-                return null;
-            }
-        };
-        Deserializer<Flow> flowDeserializer = (topic, data) -> {
-            if (data == null) return null;
-            try {
-                // IMPORTANTE: o flowSerializer acima usa o Jackson genérico
-                // (mapper.writeValueAsBytes) para serializar o Flow no tópico de
-                // repartição criado pelo groupBy(). O FlowParser.readJson foi feito
-                // para o formato BRUTO vindo do sniffer, que é diferente do JSON
-                // gerado pelo Jackson a partir do objeto Flow. Usar FlowParser aqui
-                // fazia o parse falhar silenciosamente (retornando null), o que por
-                // sua vez causava NullPointerException dentro do aggregate() e
-                // derrubava a StreamThread sem log nenhum. A correção é usar o
-                // Jackson simetricamente aqui também.
-                return mapper.readValue(data, Flow.class);
-            } catch (Exception e) {
-                System.err.println("[flowDeserializer] Falha ao desserializar Flow do tópico de reparticionamento: " + e.getMessage());
-                return null;
-            }
-        };
-        Serde<Flow> flowSerde = Serdes.serdeFrom(flowSerializer, flowDeserializer);
- 
+        // Reutiliza o FlowSerializer/FlowDeserializer que já existem no projeto e já
+        // registram o JavaTimeModule corretamente. O bug original era um ObjectMapper
+        // criado aqui em App.java (sem JavaTimeModule) tentando serializar o campo
+        // Flow.timestamp (um LocalDateTime): a serialização falhava silenciosamente,
+        // o serializer devolvia null, e por isso TODO flow chegava nulo no aggregate().
+        Serde<Flow> flowSerde = Serdes.serdeFrom(new FlowSerializer(), new FlowDeserializer());
+
         // SERDE PARA AGGREGATEDFLOW
+        // Usa o AggregatedFlowParser nos dois sentidos (em vez de misturar com um
+        // ObjectMapper "cru" separado), garantindo que serialização e desserialização
+        // usem exatamente a mesma configuração de Jackson (JavaTimeModule, formatação
+        // de datas etc.).
         Serializer<AggregatedFlow> aggSerializer = (topic, data) -> {
             if (data == null) return null;
             try {
                 return AggregatedFlowParser.toJsonString(data).getBytes("UTF-8");
             } catch (Exception e) {
+                System.err.println("[aggSerializer] Falha ao serializar AggregatedFlow: " + e.getMessage());
                 return null;
             }
         };
         Deserializer<AggregatedFlow> aggDeserializer = (topic, data) -> {
             if (data == null) return null;
             try {
-                return mapper.readValue(data, AggregatedFlow.class);
+                return AggregatedFlowParser.fromJsonString(new String(data, "UTF-8"));
             } catch (Exception e) {
+                System.err.println("[aggDeserializer] Falha ao desserializar AggregatedFlow: " + e.getMessage());
                 return null;
             }
         };
@@ -135,7 +118,7 @@ public class App {
                 () -> new AggregatedFlow(LocalDateTime.now()),
                 (key, flow, aggregate) -> {
                     if (flow == null) {
-                        System.err.println("[aggregate] Flow nulo recebido, ignorando registro.");
+                        System.err.println("[aggregate] Flow nulo recebido, ignorando registro para não derrubar a StreamThread.");
                         return aggregate;
                     }
                     aggregate.addFlow(flow);
@@ -166,16 +149,19 @@ public class App {
         
         KafkaStreams streams = new KafkaStreams(topology, props);
 
+        // Sem isso, qualquer exceção não tratada dentro da topologia (como a
+        // NullPointerException do bug original) mata a StreamThread e, se não
+        // houver um binding de log (slf4j-simple/logback) configurado no
+        // classpath, isso acontece completamente em silêncio.
         streams.setUncaughtExceptionHandler(exception -> {
             System.err.println("[UNCAUGHT EXCEPTION] A StreamThread falhou:");
             exception.printStackTrace();
             return org.apache.kafka.streams.errors.StreamsUncaughtExceptionHandler.StreamThreadExceptionResponse.REPLACE_THREAD;
         });
- 
+
         streams.setStateListener((newState, oldState) -> {
             System.out.println("[STATE] " + oldState + " -> " + newState);
         });
-
 
         final CountDownLatch latch = new CountDownLatch(1);
         Runtime.getRuntime().addShutdownHook(new Thread("streams-shutdown-hook") {

@@ -4,9 +4,18 @@ import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
 
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
+// A maioria dos campos abaixo só tem getter (sem setter). Isso é o suficiente
+// para SERIALIZAR (produzir o JSON de saída), mas não para DESSERIALIZAR de
+// volta em um objeto Java — o que o Kafka Streams precisa fazer toda vez que
+// lê o valor atual do state store durante o aggregate() (já que o cache está
+// desligado). Sem isso, a desserialização falha silenciosamente e o agregado
+// reinicia do zero a cada evento. Esta anotação permite que o Jackson acesse
+// os campos privados diretamente via reflexão quando não há setter.
+@JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.ANY)
 public class AggregatedFlow {
     // Janela de tempo
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS")
