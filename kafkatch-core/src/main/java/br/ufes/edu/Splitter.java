@@ -21,6 +21,7 @@ import org.apache.kafka.streams.kstream.Produced;
 import br.ufes.edu.domain.AggregatedFlow;
 import br.ufes.edu.serdes.AggregatedFlowParser;
 
+// CLASSE DEPRECIADA — OutputWatcher.java REALIZA O PROCESSAMENTO INTEIRO
 public class Splitter {
     public static void main(String[] args) throws Exception {
         // CONFIGURAÇÕES DO CONSUMIDOR

@@ -4,9 +4,7 @@ import java.util.LinkedList;
 
 /**
  * Mantém os últimos N valores (janela por contagem, não por tempo) para
- * calcular uma média móvel. Ao contrário de java.util.LongSummaryStatistics,
- * esta classe tem getters/setters completos, então o Jackson consegue
- * reconstruí-la de verdade ao ler do state store (não só serializar).
+ * calcular uma média móvel
  */
 public class RollingStats {
     private LinkedList<Long> values = new LinkedList<>();

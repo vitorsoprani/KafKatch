@@ -9,7 +9,6 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import br.ufes.edu.domain.Flow;
 
-// CLASSE DEPRECIADA — UTILIZE FlowParser.java
 public class FlowDeserializer implements Deserializer<Flow> {
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 

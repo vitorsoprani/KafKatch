@@ -19,8 +19,8 @@ import org.apache.kafka.streams.kstream.Grouped;
 import org.apache.kafka.streams.kstream.Materialized;
 import org.apache.kafka.streams.kstream.Produced;
 import org.apache.kafka.streams.kstream.Suppressed;
-import org.apache.kafka.streams.kstream.TimeWindows;
 import org.apache.kafka.streams.kstream.Suppressed.BufferConfig;
+import org.apache.kafka.streams.kstream.TimeWindows;
 
 import br.ufes.edu.domain.AggregatedFlow;
 import br.ufes.edu.domain.Flow;
@@ -66,15 +66,10 @@ public class App {
         final Integer windowSize = 10;
 
         // SERDE PARA FLOW
-        // Reutiliza o FlowSerializer/FlowDeserializer que já existem no projeto e já
-        // registram o JavaTimeModule corretamente. O bug original era um ObjectMapper
-        // criado aqui em App.java (sem JavaTimeModule) tentando serializar o campo
-        // Flow.timestamp (um LocalDateTime): a serialização falhava silenciosamente,
-        // o serializer devolvia null, e por isso TODO flow chegava nulo no aggregate().
         Serde<Flow> flowSerde = Serdes.serdeFrom(new FlowSerializer(), new FlowDeserializer());
 
         // SERDE PARA AGGREGATEDFLOW
-        // IMPORTANTE: aqui usamos toInternalJsonString/fromInternalJsonString
+        // IMPORTANTE: aqui se usam toInternalJsonString/fromInternalJsonString
         // (não toJsonString/fromJsonString). Esse serde é usado pelo state
         // store interno do Kafka Streams (Materialized.with abaixo), e precisa
         // preservar TODOS os campos — incluindo o flowKeys, que é essencial
@@ -86,7 +81,7 @@ public class App {
             try {
                 return AggregatedFlowParser.toInternalJsonString(data).getBytes("UTF-8");
             } catch (Exception e) {
-                System.err.println("[aggSerializer] Falha ao serializar AggregatedFlow: " + e.getMessage());
+                System.err.println("Falha ao serializar AggregatedFlow: " + e.getMessage());
                 return null;
             }
         };
@@ -95,7 +90,7 @@ public class App {
             try {
                 return AggregatedFlowParser.fromInternalJsonString(new String(data, "UTF-8"));
             } catch (Exception e) {
-                System.err.println("[aggDeserializer] Falha ao desserializar AggregatedFlow: " + e.getMessage());
+                System.err.println("Falha ao desserializar AggregatedFlow: " + e.getMessage());
                 return null;
             }
         };
@@ -104,7 +99,7 @@ public class App {
         // TOPOLOGIA KAFKA STREAMS:
         StreamsBuilder builder = new StreamsBuilder();
         builder.<String, String>stream(inputTopic)
-            .peek((key, value) -> System.out.println("[PEEK-1] Mensagem recebida"))
+            .peek((key, value) -> System.out.println("Mensagem recebida"))
             .mapValues((readOnlyKey, value) -> {
                 try {
                     return FlowParser.readJson(value, System.currentTimeMillis());
@@ -114,14 +109,14 @@ public class App {
                 }
             })
             .filter((key, flow) -> flow != null)
-            .peek((key, flow) -> System.out.println("[PEEK-2] Parse OK! Fluxo recebido - Bytes: " + flow.getByte_count()))
+            .peek((key, flow) -> System.out.println("Parse OK! Fluxo recebido - Bytes: " + flow.getByte_count()))
             .groupBy((key, flow) -> "global-key", Grouped.with(Serdes.String(), flowSerde))
             .windowedBy(TimeWindows.ofSizeWithNoGrace(Duration.ofSeconds(windowSize)))
             .aggregate(
                 () -> new AggregatedFlow(LocalDateTime.now()),
                 (key, flow, aggregate) -> {
                     if (flow == null) {
-                        System.err.println("[aggregate] Flow nulo recebido, ignorando registro para não derrubar a StreamThread.");
+                        System.err.println("Flow nulo recebido, ignorando registro para não derrubar a StreamThread.");
                         return aggregate;
                     }
                     aggregate.addFlow(flow);
@@ -131,7 +126,7 @@ public class App {
             )
             .suppress(Suppressed.untilWindowCloses(BufferConfig.unbounded()))
             .toStream()
-            .peek((windowedKey, aggregatedFlow) -> System.out.println("[PEEK-3] Janela fechada! Liberando agregado das " + windowedKey.window().startTime()))
+            .peek((windowedKey, aggregatedFlow) -> System.out.println("Janela fechada! Liberando agregado das " + windowedKey.window().startTime()))
             .map((windowedKey, aggregatedFlow) -> {
                 try {
                     String jsonOut = AggregatedFlowParser.toJsonString(aggregatedFlow);

@@ -16,6 +16,8 @@ import com.sshtools.twoslices.ToastType;
 import br.ufes.edu.domain.AggregatedFlow;
 import br.ufes.edu.serdes.AggregatedFlowParser;
 
+// CLASSE DEPRECIADA — USE OutputWatcher.java
+// Para as notificações, use a aplicação em kafkatch-alert-viewers
 public class App {
     public static void main(String[] args){
         // CONFIGURAÇÕES DO CONSUMIDOR:

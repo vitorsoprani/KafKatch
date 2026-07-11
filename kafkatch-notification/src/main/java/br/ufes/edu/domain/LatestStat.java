@@ -3,6 +3,7 @@ package br.ufes.edu.domain;
 import java.io.Serializable;
 import java.util.LongSummaryStatistics;
 
+// CLASSE DEPRECIADA — USE RollingStats.java
 public class LatestStat implements Serializable {
     private long   sample_size,
                    latest_entry;

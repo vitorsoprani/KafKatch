@@ -27,23 +27,20 @@ import br.ufes.edu.serdes.WarningDeserializer;
 import br.ufes.edu.serdes.WarningSerializer;
 
 public class OutputWatcher {
-
-    // ---- TÓPICOS ----
-    // Mesmo tópico de saída do agregador (App.java) e de entrada do Splitter.java —
-    // este componente é só mais um consumidor independente do mesmo stream.
+    // TÓPICOS
     private static final String INPUT_TOPIC  = "network-microflows-aggregated";
     private static final String OUTPUT_TOPIC = "network-warnings";
 
-    // ---- STATE STORES (um por métrica monitorada) ----
+    // STATE STORES
     private static final String STORE_INBOUND  = "rolling-inbound-store";
     private static final String STORE_OUTBOUND = "rolling-outbound-store";
     private static final String STORE_FLOWS    = "rolling-flows-store";
 
-    // ---- PARÂMETROS DE DETECÇÃO ----
-    private static final int WINDOW_SIZE = 30;       // "média dos últimos 30" agregados
-    private static final double RATIO_REGULAR = 1.2; // 20% acima da média  -> severidade "regular"
-    private static final double RATIO_MEDIA   = 1.5; // 50% acima da média  -> severidade "media"
-    private static final double RATIO_ALTA    = 2.0; // 100% acima da média -> severidade "alta"
+    // PARÂMETROS DE DETECÇÃO
+    private static final int WINDOW_SIZE = 30; // registrará média dos últimos 30 agregados, no máximo
+    private static final double RATIO_REGULAR = 1.2;
+    private static final double RATIO_MEDIA   = 1.5;
+    private static final double RATIO_ALTA    = 2.0;
 
     public static void main(String[] args) throws Exception {
         Properties props = new Properties();
@@ -64,35 +61,30 @@ public class OutputWatcher {
         addRollingStore(builder, STORE_OUTBOUND, rsSer, rsDes);
         addRollingStore(builder, STORE_FLOWS, rsSer, rsDes);
 
-        // 1) lê o tópico como String (mesmo padrão do App.java/Splitter.java) e faz
-        //    o parse manualmente, descartando com log mensagens malformadas em vez
-        //    de deixar uma exceção derrubar a StreamThread.
         KStream<String, String> source = builder.stream(INPUT_TOPIC,
                 Consumed.with(Serdes.String(), Serdes.String()));
 
         KStream<String, AggregatedFlow> parsed = source
-                .peek((key, value) -> System.out.println("[PEEK-1] Mensagem recebida em " + INPUT_TOPIC))
+                .peek((key, value) -> System.out.println("Mensagem recebida em " + INPUT_TOPIC))
                 .mapValues(value -> {
                     try {
                         return AggregatedFlowParser.fromJsonString(value);
                     } catch (Exception e) {
-                        System.err.println("[PARSE] Erro ao fazer parse do AggregatedFlow: " + e.getMessage());
+                        System.err.println("Erro ao fazer parse do AggregatedFlow: " + e.getMessage());
                         return null;
                     }
                 })
                 .filter((key, value) -> value != null)
-                .peek((key, value) -> System.out.println("[PEEK-2] Parse OK! Bytes out: " + value.getBytes_outbound()
+                .peek((key, value) -> System.out.println("Parse OK! Bytes out: " + value.getBytes_outbound()
                         + " | Bytes in: " + value.getBytes_inbound()
                         + " | Fluxos únicos: " + value.getUnique_flow_count()));
 
-        // 2) para cada AggregatedFlow, compara com a média móvel e gera 0..N warnings
         KStream<String, List<Warning>> warningsLists = parsed.transformValues(
                 () -> new AnomalyDetectorTransformer(
                         STORE_INBOUND, STORE_OUTBOUND, STORE_FLOWS,
                         WINDOW_SIZE, RATIO_REGULAR, RATIO_MEDIA, RATIO_ALTA),
                 STORE_INBOUND, STORE_OUTBOUND, STORE_FLOWS);
 
-        // 3) "achata" a lista de warnings em registros individuais e publica no tópico de saída
         warningsLists
                 .peek((key, list) -> {
                     if (!list.isEmpty())
@@ -108,10 +100,9 @@ public class OutputWatcher {
 
         final KafkaStreams streams = new KafkaStreams(topology, props);
 
-        // Igual ao App.java principal: sem isso, qualquer exceção não tratada dentro
-        // da topologia (ex: um bug no state store) mata a StreamThread e, se não
-        // houver um binding de log configurado no classpath, isso acontece em
-        // silêncio total — por isso o handler explícito abaixo.
+        // Sem isso, qualquer exceção não tratada dentro da topologia (ex: um
+        // bug no state store) mata a StreamThread e, se não houver um binding
+        // de log configurado no classpath, isso acontece em silêncio total
         streams.setUncaughtExceptionHandler(exception -> {
             System.err.println("[UNCAUGHT EXCEPTION] A StreamThread do OutputWatcher falhou:");
             exception.printStackTrace();

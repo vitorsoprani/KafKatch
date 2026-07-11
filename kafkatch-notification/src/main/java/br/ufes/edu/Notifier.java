@@ -7,6 +7,8 @@ import com.sshtools.twoslices.ToastType;
 
 import br.ufes.edu.domain.AggregatedFlow;
 
+// CLASSE DEPRECIADA — OutputWatcher.java REALIZA O PROCESSAMENTO INTEIRO
+// Para as notificações, use a aplicação em kafkatch-alert-viewer
 public class Notifier {
     private final ArrayList<AggregatedFlow> aggregate_sample = new ArrayList<>();
     private int sample_max_size;

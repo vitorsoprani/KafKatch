@@ -12,7 +12,6 @@ import br.ufes.edu.domain.Flow;
 import br.ufes.edu.domain.FlowDirection;
 import br.ufes.edu.domain.FlowProtocol;
 
-// CLASSE DEPRECIADA — UTILIZE FlowParserTest.java
 public class FlowSerializerTest {
     public static void main(String[] args) {
         Properties props = new Properties();

@@ -24,9 +24,7 @@ import br.ufes.edu.domain.Warning;
  *
  * As 3 métricas são checadas de forma isolada (try/catch individual) para
  * que uma falha em uma delas (ex: state store corrompido) não impeça as
- * outras duas de continuarem funcionando nem derrube a StreamThread —
- * mesmo espírito defensivo do aggregate() em App.java, que ignora um Flow
- * nulo em vez de propagar a exceção.
+ * outras duas de continuarem funcionando nem derrube a StreamThread
  */
 public class AnomalyDetectorTransformer implements ValueTransformerWithKey<String, AggregatedFlow, List<Warning>> {
 

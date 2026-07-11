@@ -12,7 +12,6 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 
 import br.ufes.edu.domain.Flow;
 
-// CLASSE DEPRECIADA — UTILIZE FlowParserTest.java
 public class FlowDeserializerTest {
     public static void main(String[] args) {
         Properties props = new Properties();

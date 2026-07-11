@@ -16,26 +16,21 @@
   </properties>
 
   <dependencies>
-    <!-- Reaproveita Warning.java e WarningDeserializer.java que já existem no
-         kafkatch-notification, em vez de duplicar esse código aqui. Isso também
-         traz Jackson (databind/annotations/core/jsr310) transitivamente, então
-         NÃO é preciso redeclará-lo neste pom. -->
+    <!-- Warning.java e WarningDeserializer.java -->
     <dependency>
       <groupId>br.ufes.edu</groupId>
       <artifactId>kafkatch-notification</artifactId>
       <version>1.0-SNAPSHOT</version>
     </dependency>
 
-    <!-- Popups de desktop, mesma lib usada no Notifier antigo -->
+    <!-- Popups de desktop -->
     <dependency>
       <groupId>com.sshtools</groupId>
       <artifactId>two-slices</artifactId>
       <version>0.9.6</version>
     </dependency>
 
-    <!-- Só o consumidor "puro" do Kafka é necessário aqui — não usamos Kafka
-         Streams neste módulo, então não precisa da dependência kafka-streams
-         (ela já vem de qualquer forma transitivamente via kafkatch-notification). -->
+    <!-- Só o consumidor "puro" do Kafka é necessário -->
     <dependency>
       <groupId>org.apache.kafka</groupId>
       <artifactId>kafka-clients</artifactId>

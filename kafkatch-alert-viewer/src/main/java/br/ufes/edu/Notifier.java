@@ -8,13 +8,7 @@ import br.ufes.edu.domain.Warning;
 /**
  * Traduz um Warning (já pronto, produzido pelo OutputWatcher no
  * kafkatch-notification) em uma notificação popup no desktop, via Toast
- * (com.sshtools.twoslices).
- *
- * Diferente do Notifier antigo — que calculava suas próprias estatísticas e
- * limites a partir de AggregatedFlow —, esta versão não guarda estado nenhum.
- * Toda a lógica de detecção de anomalia já foi feita rio acima, no
- * AnomalyDetectorTransformer. Aqui só resta mapear severidade -> tipo de
- * toast e disparar o popup.
+ * (com.sshtools.twoslices). Mapeia severidade -> tipo de toast
  *
  * ToastType suportados pela lib two-slices: NONE, INFO, WARNING, ERROR.
  */

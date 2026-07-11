@@ -11,6 +11,7 @@ import br.ufes.edu.domain.Flow;
 import br.ufes.edu.domain.FlowDirection;
 import br.ufes.edu.domain.FlowProtocol;
 
+// CLASSE DEPRECIADA — UTILIZE FlowSerializer.java E FlowDeserializer.java
 public class FlowParser {
     
     // Instância única do ObjectMapper (pesada de criar, boa prática deixar estática)
